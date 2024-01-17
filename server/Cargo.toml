@@ -3,6 +3,9 @@ name = "server"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "client"
+path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -17,4 +20,4 @@ time = "0.3.31"
 url = "2.5.0"
 hmac = { version = "0.13.0-pre.1", features = [] }
 log = "0.4.20"
-
+common = { path = "../common" }

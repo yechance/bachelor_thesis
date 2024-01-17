@@ -6,19 +6,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
 name = "client"
-test = false
-bench = false
+path = "src/main.rs"
 
 [dependencies]
 quiche = "0.20.0"
-csv = "1.3.0"
 mio = { version = "0.8", features = ["net", "os-poll"] }
-serde = { version = "1.0.195", features = ["derive"]}
 ring = "0.17.7"
 rand = "0.8.5"
 config = { version = "0.13.4", features = [] }
 time = "0.3.31"
 url = "2.5.0"
 log = { version = "0.4.20", features = [] }
+common = { path = "../common" }
+uuid = { version = "1.6.1", features = ["v4", "fast-rng","macro-diagnostics"] }
 
 

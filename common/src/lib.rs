@@ -12,7 +12,7 @@ use plotters::prelude::*;
 use plotters::element::ErrorBar;
 // use ndarray::{array, Array, s};
 pub const CLIENT_ADDR : &str = "127.0.0.1:3000";
-pub const SERVER_ADDR : &str = "127.0.0.1:8000";
+pub const SERVER_ADDR : &str = "127.0.0.1:8080";
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 
 pub const UUID_SIZE : usize = 16;

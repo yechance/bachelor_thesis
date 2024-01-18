@@ -19,10 +19,11 @@ use crate::prelude::*;
 
 fn main() {
     // args [path, message_size]
-    let args: Vec<String> = env::args().collect();
-    let message_size : usize = args[1].parse().unwrap();
+    // let args: Vec<String> = env::args().collect();
+    // let message_size : usize = args[1].parse().unwrap();
+    let message_size : usize = 100000;
     let mut sent_bytes = 0;
-    let mut records : HashMap<Uuid, &mut Record> = HashMap::new();
+    let mut records : HashMap<Uuid, Record> = HashMap::new();
 
     // Buffer & Setup the event loop
     // 연결 할 서버의 주소를 받아오고 버퍼들을 준비한다.
@@ -139,13 +140,13 @@ fn main() {
                     continue 'read;
                 },
             };
-            // Deserialize
-            let ack_packet = PacketBody::deserialize(buf[..len]);
-
-            // Calculate the actual rtt
-            let mut record = records.get(ack_packet.id).unwrap();
-            record.ack_timestamp = Instant::now();
-            record.actual_rtt = record.send_timestamp.elapsed();
+            // // Deserialize
+            // let ack_packet = PacketBody::deserialize(buf[..len]);
+            //
+            // // Calculate the actual rtt
+            // let mut record = records.get(ack_packet.id).unwrap();
+            // record.ack_timestamp = Instant::now();
+            // record.actual_rtt = record.send_timestamp.elapsed();
             debug!("processed {} bytes", read);
         }
 
@@ -222,7 +223,7 @@ fn main() {
                 message_size : message_size,
                 // path_stats : conn.path_stats().clone(),
             };
-            records.insert(record.packet_id, &mut record);
+            records.insert(record.packet_id, record);
 
             let (write, send_info) = match conn.send(serialized.as_mut_slice()) {
                 Ok(v) => v,

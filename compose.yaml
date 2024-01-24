@@ -7,3 +7,14 @@ services:
     build: ./server
     ports:
       - "8000:8000"
+
+#networks:
+#  frontend:
+#    # Use a custom driver
+#    driver: custom-driver-1
+#  backend:
+#    # Use a custom driver which takes special options
+#    driver: custom-driver-2
+#    driver_opts:
+#      foo: "1"
+#      bar: "2"

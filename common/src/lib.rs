@@ -50,6 +50,13 @@ impl PacketInfo {
         // });
         // serialized.extend(vec![1;self.packet_size]);
 
+
+        // Create packet and serialize it.
+        // let packet_info = PacketInfo::new();
+        // let mut serialized : Vec<u8> = packet_info.serialize();
+        // out[..serialized.len()].copy_from_slice(&serialized);
+        //
+        // println!("Send packet id : {}", packet_info.id.to_string());
         return serialized;
     }
 
@@ -67,7 +74,6 @@ impl PacketInfo {
 }
 
 pub struct Record {
-    pub packet_id : Uuid,
     pub message_size : usize,
     pub send_timestamp : Instant,
     pub ack_timestamp : Instant,
@@ -114,7 +120,6 @@ pub fn write_records_to_csv(records : & HashMap<Uuid, Record>) {
     // Data
     for (id, record) in records {
         writer.write_record(&[
-            id.to_string(),
             record.message_size.to_string(),
             format_duration(record.actual_rtt),
             record.recv.to_string(),
@@ -203,7 +208,6 @@ mod tests {
     fn test_write_records_to_csv(){
         let mut records : HashMap<Uuid, Record> = HashMap::new();
         let r1 : Record = Record {
-            packet_id : Uuid::new_v4(),
             message_size : 100,
             actual_rtt : Duration::new(5,0),
             send_timestamp : Instant::now(),
@@ -223,7 +227,7 @@ mod tests {
             delivery_rate: 0,
         };
         let r2 : Record = Record {
-            packet_id : Uuid::new_v4(),
+            message_id: Uuid::new_v4(),
             actual_rtt : Duration::new(10,0),
             send_timestamp : Instant::now(),
             ack_timestamp : Instant::now(),
@@ -242,8 +246,8 @@ mod tests {
             stream_retrans_bytes: 0,
             delivery_rate: 0,
         };
-        records.insert(r1.packet_id, r1);
-        records.insert(r2.packet_id, r2);
+        records.insert(r1.message_id, r1);
+        records.insert(r2.message_id, r2);
 
         write_records_to_csv(&records);
     }

@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use csv::Writer;
 use std::path::Path;
 pub use std::collections::HashMap;
@@ -81,7 +81,11 @@ fn format_duration(duration: Duration) -> String {
     format!("{:02}:{:02}.{:03}", seconds / 60, seconds % 60, millis)
 }
 pub fn write_records_to_csv(filepath : &str, records : & HashMap<usize, Record>) {
-    let file = File::create(filepath).unwrap();
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(filepath).unwrap();
 
     let mut writer = Writer::from_writer(file);
 
@@ -101,7 +105,7 @@ pub fn write_records_to_csv(filepath : &str, records : & HashMap<usize, Record>)
         "recv bytes",
         "lost_bytes",
         "stream_retrans_bytes",
-        "delivery_rate"]);
+        "delivery_rate"]).unwrap();
 
     // Data
     for (id, record) in records.iter() {

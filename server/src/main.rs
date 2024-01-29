@@ -184,7 +184,6 @@ fn main() {
                     if let Err(e) = socket.send_to(out, from) {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
                             debug!("send() would block");
-                            println!("send() would block");
                             break;
                         }
 
@@ -297,24 +296,16 @@ fn main() {
                 // Handle writable streams.
 
                 for stream_id in client.conn.writable() {
-                    println!("\n== Send Stream ====");
                     handle_writable(client, stream_id);
-                    println!("======");
                 }
 
                 // Process all readable streams.
                 for s in client.conn.readable() {
-                    println!("==Read Stream====");
                     while let Ok((read, fin)) =
                         client.conn.stream_recv(s, &mut buf)
                     {
                         debug!(
                             "{} received {} bytes",
-                            client.conn.trace_id(),
-                            read
-                        );
-                        println!(
-                            " - {} received {} bytes",
                             client.conn.trace_id(),
                             read
                         );
@@ -328,18 +319,8 @@ fn main() {
                             stream_buf.len(),
                             fin
                         );
-                        println!(
-                            " - {} stream {} has {} bytes (fin? {})",
-                            client.conn.trace_id(),
-                            s,
-                            stream_buf.len(),
-                            fin
-                        );
-                        println!("\n== Handle Stream ====");
                         handle_stream(client, s, stream_buf);
-                        println!("======");
                     }
-                    println!("======");
                 }
 
 
@@ -461,11 +442,6 @@ fn handle_stream(client: &mut Client, stream_id: u64, buf: &[u8]) {
             body.len(),
             stream_id
         );
-    println!(
-        " - sending response of size {} on stream {}",
-        body.len(),
-        stream_id
-    );
 
     let written = match conn.stream_send(stream_id, &body, true) {
         Ok(v) => v,

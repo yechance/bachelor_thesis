@@ -76,7 +76,6 @@ fn main() {
 
     // Resolve server address.
     let peer_addr = url.socket_addrs(|| None).unwrap()[0];
-    println!("{}", peer_addr.to_string());
 
     // Bind to INADDR_ANY or IN6ADDR_ANY depending on the IP family of the
     // server address. This is needed on macOS and BSD variants that don't
@@ -207,19 +206,12 @@ fn main() {
 
         // Process all readable streams.
         for s in conn.readable() {
-            println!("[Read stream]");
             while let Ok((read, fin)) = conn.stream_recv(s, &mut buf) {
                 debug!("received {} bytes", read);
 
                 let stream_buf = &buf[..read];
                 debug!(
                     "stream {} has {} bytes (fin? {})",
-                    s,
-                    stream_buf.len(),
-                    fin
-                );
-                println !(
-                    " - stream {} has {} bytes (fin? {})",
                     s,
                     stream_buf.len(),
                     fin
@@ -235,22 +227,18 @@ fn main() {
                     let message_idx : usize = (s/4) as usize;
                     measure_actual_rtt(message_idx, &mut records);
                     streams_sent[message_idx] = true;
-                    println!(" - Ack stream id : {}", s as usize);
 
                     if idx == num_msg {
-                        println!("connection close");
                         conn.close(true, 0x00, b"kthxbye").unwrap();
                     }
                 }
             }
-            println!("[End Read Stream]");
         }
 
         // Send an HTTP request as soon as the connection is established.
         if conn.is_established() && idx < num_msg &&
             (idx == 0 || (idx > 0 && streams_sent[idx-1]))
         {
-            println!("[Send Stream]");
             measure_path_stats_before_send(&conn, &mut records, idx, messages[idx].len());
 
             let written = match conn.stream_send((idx*4) as u64, &messages[idx], true) {
@@ -262,13 +250,6 @@ fn main() {
                     return;
                 },
             };
-
-            println !(
-                "- Send stream {} has {} bytes, {} bytes written",
-                idx*4,
-                messages[idx].len(),
-                written,
-            );
 
             idx += 1;
         }

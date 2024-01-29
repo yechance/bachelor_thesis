@@ -55,7 +55,7 @@ fn main() {
     // let args: Vec<String> = env::args().collect();
     // let message_size : usize = args[1].parse().unwrap();
     let mut messages : Vec<Vec<u8>> = Vec::new();
-    let sizes : Vec<usize> = vec![1350, 1000];
+    let sizes : Vec<usize> = vec![13500, 10000];
     generate_messages(&mut messages, &sizes);
     let mut streams_sent : Vec<bool> = vec![false;messages.len()];
 
@@ -199,14 +199,20 @@ fn main() {
             break;
         }
 
-        println!("[Send Stream]");
+        println!("==Send Stream 검토==");
+        println!(" - 메세지 인덱스 : {}", idx);
+        println!(" - 연결 됐나? : {}", conn.is_established());
+        println!(" - 보낼 메세지 있나? : {}", idx < num_msg);
+        println!(" - 이전 스트림이 처리 되었나? : {}", idx < num_msg && (idx == 0 || (idx > 0 && streams_sent[idx-1])));
+
         // Send an HTTP request as soon as the connection is established.
         if conn.is_established() && idx < num_msg &&
-            (idx == 0 || (idx > 0 && streams_sent[idx]))
+            (idx == 0 || (idx > 0 && streams_sent[idx-1]))
         {
+            println!("[Send Stream]");
             measure_path_stats_before_send(&conn, &mut records, idx, messages[idx].len());
 
-            let written = match conn.stream_send(idx as u64, &messages[idx], true) {
+            let written = match conn.stream_send((idx*4) as u64, &messages[idx], true) {
                 Ok(v) => v,
                 Err(quiche::Error::Done) => 0,
 
@@ -219,19 +225,19 @@ fn main() {
 
             println !(
                 "- Send stream {} has {} bytes, {} bytes written",
-                idx,
+                idx*4,
                 messages[idx].len(),
                 written,
             );
 
             idx += 1;
         }
-        println!("[Read stream]");
+
         // Process all readable streams.
         for s in conn.readable() {
+            println!("[Read stream]");
             while let Ok((read, fin)) = conn.stream_recv(s, &mut buf) {
                 debug!("received {} bytes", read);
-                println!(" - received {} bytes", read);
 
                 let stream_buf = &buf[..read];
                 debug!(
@@ -254,8 +260,9 @@ fn main() {
                 // The server reported that it has no more data to send, which
                 // we got the full response. Close the connection.
                 if fin {
-                    measure_actual_rtt(s as usize, &mut records);
-                    streams_sent[s as usize] = true;
+                    let message_idx : usize = (s/4) as usize;
+                    measure_actual_rtt(message_idx, &mut records);
+                    streams_sent[message_idx] = true;
                     println!(" - Ack stream id : {}", s as usize);
 
                     if idx == num_msg {
@@ -263,8 +270,9 @@ fn main() {
                     }
                 }
             }
+            println!("[End Read Stream]");
         }
-        println!("[End Read Stream]");
+
 
         // Generate outgoing QUIC packets and send them on the UDP socket, until
         // quiche reports that there are no more packets to be sent.

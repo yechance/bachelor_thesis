@@ -295,13 +295,16 @@ fn main() {
 
             if client.conn.is_in_early_data() || client.conn.is_established() {
                 // Handle writable streams.
+
                 for stream_id in client.conn.writable() {
+                    println!("\n== Send Stream ====");
                     handle_writable(client, stream_id);
+                    println!("======");
                 }
 
-                println!("\n==Read stream====");
                 // Process all readable streams.
                 for s in client.conn.readable() {
+                    println!("==Read Stream====");
                     while let Ok((read, fin)) =
                         client.conn.stream_recv(s, &mut buf)
                     {
@@ -332,11 +335,14 @@ fn main() {
                             stream_buf.len(),
                             fin
                         );
-
+                        println!("\n== Handle Stream ====");
                         handle_stream(client, s, stream_buf);
+                        println!("======");
                     }
+                    println!("======");
                 }
-                println!("======");
+
+
             }
         }
 
@@ -449,7 +455,6 @@ fn handle_stream(client: &mut Client, stream_id: u64, buf: &[u8]) {
     let conn = &mut client.conn;
     let body : Vec<u8> = vec![0];
 
-    println!("\n== Send Stream ====");
     info!(
             "{} sending response of size {} on stream {}",
             conn.trace_id(),
@@ -477,8 +482,6 @@ fn handle_stream(client: &mut Client, stream_id: u64, buf: &[u8]) {
         let response = PartialResponse { body, written };
         client.partial_responses.insert(stream_id, response);
     }
-    println!("==========\n");
-
 }
 
 /// Handles newly writable streams.

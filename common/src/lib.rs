@@ -22,56 +22,6 @@ pub const DATAGRAM_SIZE : usize = 1183;
 /**
 Packet information
  */
-#[repr(u8)]
-pub enum PacketType {
-    ACK = 0, PACKET=1, None = 2,
-}
-pub struct PacketInfo {
-    pub id : Uuid,
-    // pub packet_type : PacketType,
-    // pub packet_size : usize,
-}
-
-impl PacketInfo {
-    pub fn new() -> PacketInfo {
-        return PacketInfo{
-            id: Uuid::new_v4(),
-            // packet_type : PacketType::PACKET,
-            // packet_size,
-        }
-    }
-    //
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut serialized = Vec::from(self.id);
-        // serialized.push(match self.packet_type {
-        //     PacketType::ACK => 0,
-        //     PacketType::PACKET => 1,
-        //     PacketType::None => 2,
-        // });
-        // serialized.extend(vec![1;self.packet_size]);
-
-
-        // Create packet and serialize it.
-        // let packet_info = PacketInfo::new();
-        // let mut serialized : Vec<u8> = packet_info.serialize();
-        // out[..serialized.len()].copy_from_slice(&serialized);
-        //
-        // println!("Send packet id : {}", packet_info.id.to_string());
-        return serialized;
-    }
-
-    pub fn deserialize(bytes : &[u8]) -> PacketInfo {
-        return PacketInfo {
-            id: Uuid::from_slice(&bytes[..UUID_SIZE]).unwrap(),
-            // packet_type : match bytes[UUID_SIZE] {
-            //     0 => PacketType::ACK,
-            //     1 => PacketType::PACKET,
-            //     _ => PacketType::None,
-            // },
-            // packet_size : bytes.len()-UUID_SIZE,
-        }
-    }
-}
 
 pub struct Record {
     pub message_size : usize,
@@ -184,21 +134,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialize_deserialize() {
-        let packet_info = PacketInfo {
-            id : Uuid::new_v4(),
-            // packet_type : PacketType::PACKET,
-            // packet_size : MAX_DATAGRAM_SIZE-UUID_SIZE,
-        };
-        let serialized = packet_info.serialize();
-        let buf = serialized.as_slice();
-
-        let deserialized = PacketInfo::deserialize(buf);
-
-        assert_eq!(Uuid::from_slice(&buf[..UUID_SIZE]).unwrap(), deserialized.id);
-    }
-
-    #[test]
     fn test_draw(){
         let data = vec![(1.0, 2.0), (2.0, 5.0), (3.0, 3.0), (4.0, 8.0), (5.0, 6.0)];
         draw_plots_with_two_features(&data, "../../images/2.1.png");
@@ -206,9 +141,9 @@ mod tests {
 
     #[test]
     fn test_write_records_to_csv(){
-        let mut records : HashMap<Uuid, Record> = HashMap::new();
+        let mut records : HashMap<usize, Record> = HashMap::new();
         let r1 : Record = Record {
-            message_size : 100,
+            message_size : 0,
             actual_rtt : Duration::new(5,0),
             send_timestamp : Instant::now(),
             ack_timestamp : Instant::now(),
@@ -227,7 +162,6 @@ mod tests {
             delivery_rate: 0,
         };
         let r2 : Record = Record {
-            message_id: Uuid::new_v4(),
             actual_rtt : Duration::new(10,0),
             send_timestamp : Instant::now(),
             ack_timestamp : Instant::now(),
@@ -246,8 +180,8 @@ mod tests {
             stream_retrans_bytes: 0,
             delivery_rate: 0,
         };
-        records.insert(r1.message_id, r1);
-        records.insert(r2.message_id, r2);
+        records.insert(0, r1);
+        records.insert(1, r2);
 
         write_records_to_csv(&records);
     }

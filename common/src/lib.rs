@@ -19,9 +19,30 @@ pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const UUID_SIZE : usize = 16;
 pub const DATAGRAM_SIZE : usize = 1183;
 
-/**
-Packet information
- */
+pub const EXAMPLE_CSV : &str= "example.csv";
+pub const ETHERNET_CSV : &str= "ethernet.csv";
+pub const WIFI_CSV : &str= "wifi.csv";
+
+pub struct MessageGenerator {
+    pub min_size : usize,
+    pub max_size : usize,
+    pub step : usize,
+    pub repeat : usize,
+    // pub random : bool,
+    // pub message_num : usize,
+}
+
+impl MessageGenerator {
+    pub fn generate_messages(&self, messages : &mut Vec<Vec<u8>>) {
+        let mut size : usize = self.min_size;
+        while size <= self.max_size {
+            for i in 0..self.repeat {
+                messages.push(vec![1;size]);
+            }
+            size += self.step;
+        }
+    }
+}
 
 pub struct Record {
     pub message_size : usize,
@@ -59,21 +80,37 @@ fn format_duration(duration: Duration) -> String {
 
     format!("{:02}:{:02}.{:03}", seconds / 60, seconds % 60, millis)
 }
-pub fn write_records_to_csv(records : & HashMap<Uuid, Record>) {
-    let file = File::create("example.csv").unwrap();
+pub fn write_records_to_csv(filepath : &str, records : & HashMap<usize, Record>) {
+    let file = File::create(filepath).unwrap();
 
     let mut writer = Writer::from_writer(file);
 
     // Header
-    writer.write_record(&["packet_id", "message_size", "actual rtt", "recv", "sent", "lost", "retrans", "rtt", "min_rtt", "rttvar", "cwnd", "sent_bytes", "recv bytes", "lost_bytes","stream_retrans_bytes", "delivery_rate"]);
+    writer.write_record(&[
+        "message_size",
+        "actual rtt",
+        "recv",
+        "sent",
+        "lost",
+        "retrans",
+        "rtt",
+        "min_rtt",
+        "rttvar",
+        "cwnd",
+        "sent_bytes",
+        "recv bytes",
+        "lost_bytes",
+        "stream_retrans_bytes",
+        "delivery_rate"]);
 
     // Data
-    for (id, record) in records {
+    for (id, record) in records.iter() {
         writer.write_record(&[
             record.message_size.to_string(),
             format_duration(record.actual_rtt),
             record.recv.to_string(),
             record.sent.to_string(),
+            record.lost.to_string(),
             record.retrans.to_string(),
             format_duration(record.rtt),
             record.min_rtt.map(|rtt| format_duration(rtt)).unwrap(),
@@ -84,8 +121,8 @@ pub fn write_records_to_csv(records : & HashMap<Uuid, Record>) {
             record.lost_bytes.to_string(),
             record.stream_retrans_bytes.to_string(),
             record.delivery_rate.to_string(),
-        ]).unwrap();
-        writer.flush().unwrap();
+        ]).expect("write record error");
+        writer.flush().expect("flush error");
     }
 }
 
@@ -183,6 +220,6 @@ mod tests {
         records.insert(0, r1);
         records.insert(1, r2);
 
-        write_records_to_csv(&records);
+        write_records_to_csv(EXAMPLE_CSV, &records);
     }
 }

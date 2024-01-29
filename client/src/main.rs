@@ -54,11 +54,18 @@ fn main() {
 
     // let args: Vec<String> = env::args().collect();
     // let message_size : usize = args[1].parse().unwrap();
-    let mut messages : Vec<Vec<u8>> = Vec::new();
-    let sizes : Vec<usize> = vec![13500, 10000];
-    generate_messages(&mut messages, &sizes);
-    let mut streams_sent : Vec<bool> = vec![false;messages.len()];
+    let filepath : &str  = EXAMPLE_CSV;
 
+    let mut messages : Vec<Vec<u8>> = Vec::new();
+    let message_generator : MessageGenerator = MessageGenerator{
+        min_size : 10_000,
+        max_size : 15_000,
+        step : 100,
+        repeat : 10,
+    };
+    message_generator.generate_messages(&mut messages);
+
+    let mut streams_sent : Vec<bool> = vec![false;messages.len()];
     let mut records : HashMap<usize, Record> = HashMap::new();
 
     let mut url = url::Url::parse("https://127.0.0.1:4433/").unwrap();
@@ -82,7 +89,7 @@ fn main() {
     // Create the UDP socket backing the QUIC connection, and register it with
     // the event loop.
     let mut socket =
-        mio::net::UdpSocket::bind(bind_addr.parse().unwrap()).unwrap();
+        UdpSocket::bind(bind_addr.parse().unwrap()).unwrap();
     poll.registry()
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
         .unwrap();
@@ -141,7 +148,6 @@ fn main() {
         panic!("send() failed: {:?}", e);
     }
 
-    let mut req_sent = false;
     let num_msg: usize = messages.len();
     let mut idx : usize= 0;
 
@@ -199,40 +205,6 @@ fn main() {
             break;
         }
 
-        println!("==Send Stream 검토==");
-        println!(" - 메세지 인덱스 : {}", idx);
-        println!(" - 연결 됐나? : {}", conn.is_established());
-        println!(" - 보낼 메세지 있나? : {}", idx < num_msg);
-        println!(" - 이전 스트림이 처리 되었나? : {}", idx < num_msg && (idx == 0 || (idx > 0 && streams_sent[idx-1])));
-
-        // Send an HTTP request as soon as the connection is established.
-        if conn.is_established() && idx < num_msg &&
-            (idx == 0 || (idx > 0 && streams_sent[idx-1]))
-        {
-            println!("[Send Stream]");
-            measure_path_stats_before_send(&conn, &mut records, idx, messages[idx].len());
-
-            let written = match conn.stream_send((idx*4) as u64, &messages[idx], true) {
-                Ok(v) => v,
-                Err(quiche::Error::Done) => 0,
-
-                Err(e) => {
-                    error!("{} stream send failed {:?}", conn.trace_id(), e);
-                    println!("{} stream send failed {:?}", conn.trace_id(), e);
-                    return;
-                },
-            };
-
-            println !(
-                "- Send stream {} has {} bytes, {} bytes written",
-                idx*4,
-                messages[idx].len(),
-                written,
-            );
-
-            idx += 1;
-        }
-
         // Process all readable streams.
         for s in conn.readable() {
             println!("[Read stream]");
@@ -266,6 +238,7 @@ fn main() {
                     println!(" - Ack stream id : {}", s as usize);
 
                     if idx == num_msg {
+                        println!("connection close");
                         conn.close(true, 0x00, b"kthxbye").unwrap();
                     }
                 }
@@ -273,6 +246,32 @@ fn main() {
             println!("[End Read Stream]");
         }
 
+        // Send an HTTP request as soon as the connection is established.
+        if conn.is_established() && idx < num_msg &&
+            (idx == 0 || (idx > 0 && streams_sent[idx-1]))
+        {
+            println!("[Send Stream]");
+            measure_path_stats_before_send(&conn, &mut records, idx, messages[idx].len());
+
+            let written = match conn.stream_send((idx*4) as u64, &messages[idx], true) {
+                Ok(v) => v,
+                Err(quiche::Error::Done) => 0,
+
+                Err(e) => {
+                    error!("{} stream send failed {:?}", conn.trace_id(), e);
+                    return;
+                },
+            };
+
+            println !(
+                "- Send stream {} has {} bytes, {} bytes written",
+                idx*4,
+                messages[idx].len(),
+                written,
+            );
+
+            idx += 1;
+        }
 
         // Generate outgoing QUIC packets and send them on the UDP socket, until
         // quiche reports that there are no more packets to be sent.
@@ -311,22 +310,19 @@ fn main() {
         }
     }
 
-    for (idx, record) in records {
-        println!("record id : {}", idx);
-        println!("message size : {}", record.message_size);
-    }
+    // for (idx, record) in records {
+    //     println!("record id : {}", idx);
+    //     println!("message size : {}", record.message_size);
+    // }
+
+    // write the records to the csv file
+    write_records_to_csv(filepath, &records);
 }
 
 fn hex_dump(buf: &[u8]) -> String {
     let vec: Vec<String> = buf.iter().map(|b| format!("{b:02x}")).collect();
 
     vec.join("")
-}
-
-fn generate_messages(messages : &mut Vec<Vec<u8>>, sizes : &Vec<usize>) {
-    for s in sizes {
-        messages.push(vec![1;*s]);
-    }
 }
 
 fn measure_path_stats_before_send(

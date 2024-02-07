@@ -51,17 +51,20 @@ const MSG_SIZE : usize = 1_000_000;
 fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
+    //
+    // // let args: Vec<String> = env::args().collect();
+    // // let message_size : usize = args[1].parse().unwrap();
+    let filepath : &str  = EXAMPLE_3_CSV;
+    //
+    let message = vec![1;MAX_MSG_SIZE];
 
-    // let args: Vec<String> = env::args().collect();
-    // let message_size : usize = args[1].parse().unwrap();
-    let filepath : &str  = EXAMPLE_CSV;
-
-    let mut messages : Vec<Vec<u8>> = Vec::new();
+    let mut messages : Vec<usize> = Vec::new();
     let message_generator : MessageGenerator = MessageGenerator{
-        min_size : 10_000,
-        max_size : 15_000,
-        step : 100,
-        repeat : 10,
+        min_size : 1_000_000,
+        max_size : MAX_MSG_SIZE,
+        step : 10,
+        step_mul : true,
+        repeat : 1000,
     };
     message_generator.generate_messages(&mut messages);
 
@@ -161,6 +164,7 @@ fn main() {
             // will then proceed with the send loop.
             if events.is_empty() {
                 debug!("timed out");
+                println!("timed out");
                 conn.on_timeout();
                 break 'read;
             }
@@ -239,9 +243,9 @@ fn main() {
         if conn.is_established() && idx < num_msg &&
             (idx == 0 || (idx > 0 && streams_sent[idx-1]))
         {
-            measure_path_stats_before_send(&conn, &mut records, idx, messages[idx].len());
 
-            let written = match conn.stream_send((idx*4) as u64, &messages[idx], true) {
+            measure_path_stats_before_send(&conn, &mut records, idx, messages[idx]);
+            let written = match conn.stream_send((idx*4) as u64, &message[..messages[idx]], true) {
                 Ok(v) => v,
                 Err(quiche::Error::Done) => 0,
 

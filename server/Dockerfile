@@ -3,9 +3,9 @@ FROM rust:latest as builder
 # Install build dependencies
 RUN apt-get update && apt-get install -y cmake
 
-WORKDIR /usr/src/app
+WORKDIR /app
 RUN USER=root cargo new --bin thesis_server
-WORKDIR /usr/src/app/thesis_server
+WORKDIR /app/thesis_server
 
 # COPY RUST project files into the container
 COPY ./Cargo.toml ./Cargo.toml
@@ -17,12 +17,9 @@ RUN cargo build --release
 FROM debian:buster-slim
 
 # Set the working directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # COPY only the necessary files from the builder image
-COPY --from=builder /usr/src/app/thesis_server/target/release/server .
-
-# Expose the port that the application listens on.
-EXPOSE 8000
+COPY --from=builder /app/thesis_server/target/release/server .
 
 CMD ["./server"]

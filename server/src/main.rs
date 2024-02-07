@@ -58,6 +58,8 @@ fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
+    let mut stream_buf = vec![1;MAX_MSG_SIZE];
+
     // Setup the event loop.
     let mut poll = mio::Poll::new().unwrap();
     let mut events = mio::Events::with_capacity(1024);
@@ -83,12 +85,12 @@ fn main() {
         .set_application_protos(&[b"http/0.9", ])
         .unwrap();
 
-    config.set_max_idle_timeout(5000);
+    config.set_max_idle_timeout(5_000);
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
-    config.set_initial_max_stream_data_bidi_local(1_000_000);
-    config.set_initial_max_stream_data_bidi_remote(1_000_000);
+    config.set_initial_max_stream_data_bidi_local(10_000_000);
+    config.set_initial_max_stream_data_bidi_remote(10_000_000);
     config.set_initial_max_stream_data_uni(1_000_000);
     config.set_initial_max_streams_bidi(100);
     config.set_initial_max_streams_uni(100);
@@ -112,12 +114,7 @@ fn main() {
 
         poll.poll(&mut events, timeout).unwrap();
 
-        // Read incoming UDP packets from the socket and feed them to quiche,
-        // until there are no more packets to read.
         'read: loop {
-            // If the event loop reported no events, it means that the timeout
-            // has expired, so handle it without attempting to read packets. We
-            // will then proceed with the send loop.
             if events.is_empty() {
                 debug!("timed out");
                 clients.values_mut().for_each(|c| c.conn.on_timeout());
@@ -300,9 +297,10 @@ fn main() {
                 }
 
                 // Process all readable streams.
+                println!("[Read Stream]");
                 for s in client.conn.readable() {
                     while let Ok((read, fin)) =
-                        client.conn.stream_recv(s, &mut buf)
+                        client.conn.stream_recv(s, &mut stream_buf)
                     {
                         debug!(
                             "{} received {} bytes",
@@ -319,6 +317,12 @@ fn main() {
                             stream_buf.len(),
                             fin
                         );
+                        println!(
+                            "\t stream {} has {} bytes (fin? {})",
+                            s,
+                            stream_buf.len(),
+                            fin
+                        );
                         handle_stream(client, s, stream_buf);
                     }
                 }
@@ -327,9 +331,7 @@ fn main() {
             }
         }
 
-        // Generate outgoing QUIC packets for all active connections and send
-        // them on the UDP socket, until quiche reports that there are no more
-        // packets to be sent.
+
         for client in clients.values_mut() {
             loop {
                 let (write, send_info) = match client.conn.send(&mut out) {
@@ -436,9 +438,15 @@ fn handle_stream(client: &mut Client, stream_id: u64, buf: &[u8]) {
     let conn = &mut client.conn;
     let body : Vec<u8> = vec![0];
 
+    println!("[Send Stream]");
     info!(
             "{} sending response of size {} on stream {}",
             conn.trace_id(),
+            body.len(),
+            stream_id
+        );
+    println!(
+            "\t sending response of size {} on stream {}",
             body.len(),
             stream_id
         );

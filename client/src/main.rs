@@ -50,6 +50,7 @@ fn main() {
     // let message_size : usize = args[1].parse().unwrap();
     let filepath : &str  = EXAMPLE_3_CSV;
 
+    // generate messages
     let mut messages : Vec<usize> = Vec::new();
     let message_generator : MessageGenerator = MessageGenerator{
         min_size : 1_000_000,
@@ -59,8 +60,10 @@ fn main() {
         repeat : 1000,
     };
     message_generator.generate_messages(&mut messages);
+    // record
     let mut records : HashMap<usize, Record> = HashMap::new();
 
+    /** socket binding */
     let mut url = url::Url::parse("https://127.0.0.1:4433/").unwrap();
 
     // Set up the event loop.
@@ -79,6 +82,7 @@ fn main() {
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
         .unwrap();
 
+    /** Configuration of quiche */
     // Create the configuration for the QUIC connection.
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION).unwrap();
 
@@ -101,6 +105,7 @@ fn main() {
     config
         .set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
 
+    /** Connection */
     // Generate a random source connection ID for the connection.
     let mut scid_base = [0; quiche::MAX_CONN_ID_LEN];
     SystemRandom::new().fill(&mut scid_base[..]).unwrap();
@@ -110,6 +115,7 @@ fn main() {
 
     let mut conn = quiche::connect(url.domain(), &scid, local_addr, peer_addr, &mut config).unwrap();
 
+    /** Initial send for the server to accept this client */
     let (write, send_info) = conn.send(&mut out).expect("initial send failed");
 
     while let Err(e) = socket.send_to(&out[..write], send_info.to) {
@@ -121,25 +127,25 @@ fn main() {
         panic!("send() failed: {:?}", e);
     }
 
-    let num_msg: usize = messages.len();
-    let mut idx : usize= 0;
+    /** variables for sending streams */
+    let num_msg: usize = messages.len(); // the number of messages
+    let mut idx : usize= 0; // message index
 
-    let mut stream_id : u64 = 0;
-    let mut message_size = messages[idx];
-    let mut total_written = 0;
-    let mut rest_write = message_size - total_written;
+    let mut stream_id : u64 = 0; // stream id
+    let mut message_size = messages[idx]; // the current message size
+    let mut total_written = 0; // the total written bytes of the current message
+    let mut rest_write = message_size - total_written; // the rest bytes of the current message to be sent
 
-    let mut streams_in_use : HashSet<u64> = HashSet::new();
-
-    let mut msg_send_started = false;
+    let mut msg_send_started = false; // true if sending the current message starts
     let mut send_timestamp;
-    // let mut path_stats;
 
+    // let mut path_stats;
     // measure_path_stats_before_send(&conn, &mut records, idx, messages[idx]);
+
     loop {
         poll.poll(&mut events, conn.timeout()).unwrap();
 
-        // Send messages in the order
+        /** Send messages via streams in the order */
         if conn.is_established() && idx < num_msg
         {
             // if it's the first time to send the streams for a message, record the time and statistics
@@ -174,11 +180,11 @@ fn main() {
                 println!("[Stream {}]\n \t Send Message idx : {}, total sent bytes : {}, rest bytes {}, written {}] ", stream_id, idx, total_written, rest_write,written);
                 // streams_in_use.insert(stream_id);
                 stream_id += 4;
-
                 stream_id %= 400;
             }
         }
 
+        /** Send packets until there's no more packet to be sent */
         loop {
             let (write, send_info) = match conn.send(&mut out) {
                 Ok(v) => v,
@@ -207,10 +213,12 @@ fn main() {
 
             debug!("written {}", write);
         }
+
+        /** Checking if the connection is closed */
         if conn.is_closed() {
             info!("\n==Connection closed, {:?}", conn.stats());
             if idx < num_msg {
-                // reconnect
+                /** reconnect */
                 SystemRandom::new().fill(&mut scid_base[..]).unwrap();
                 scid = quiche::ConnectionId::from_ref(&scid_base);
 
@@ -232,6 +240,7 @@ fn main() {
             }
         }
 
+        /** Read stream */
         println!("[Read stream]");
         // Process all readable streams.
         for s in conn.readable() {
@@ -256,11 +265,13 @@ fn main() {
                 });
 
                 if fin {
+                    /** stream is finished */
                     println!("\t read {} stream finished", s);
                     // measure_actual_rtt(idx, &mut records);
                     // streams_in_use.remove(&s);
 
                     if rest_write <= 0 {
+                        // /** Sending the current message is finished */
                         // it means that sending a message is done.
                         // record the measurement
 
@@ -276,7 +287,7 @@ fn main() {
                 }
             }
         }
-
+        /** Read packets */
         'read: loop {
             if events.is_empty() {
                 debug!("timed out");
@@ -312,10 +323,11 @@ fn main() {
             };
             debug!("processed {} bytes", read);
         }
+        /** Checking if the connection is closed */
         if conn.is_closed() {
             info!("connection closed, {:?}", conn.stats());
             if idx < num_msg {
-                // reconnect
+                /** reconnect */
                 SystemRandom::new().fill(&mut scid_base[..]).unwrap();
                 scid = quiche::ConnectionId::from_ref(&scid_base);
 

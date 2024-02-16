@@ -36,7 +36,7 @@ mod prelude {
 
     pub use common::*;
 }
-
+use std::time::{Duration, Instant};
 use quiche::CongestionControlAlgorithm;
 use crate::prelude::*;
 
@@ -106,16 +106,23 @@ fn main() {
 
     let local_addr = socket.local_addr().unwrap();
 
+    // Find the shorter timeout from all the active connections.
+    //
+    // TODO: use event loop that properly supports timers
+    let mut timeout = Duration::from_secs(0); // must be set later
+    let mut timeout_time = Instant::now() + timeout;
+
     loop {
         // Find the shorter timeout from all the active connections.
         //
         // TODO: use event loop that properly supports timers
-        let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
-
-        poll.poll(&mut events, timeout).unwrap();
+        // let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
+        // poll.poll(&mut events, timeout).unwrap();
+        timeout = clients.values().filter_map(|c| c.conn.timeout()).min().unwrap_or_else(|| Duration::from_secs(0));
+        poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
 
         'read: loop {
-            if events.is_empty() {
+            if events.is_empty() && (!clients.is_empty() && timeout_time < Instant::now()){
                 debug!("timed out");
                 clients.values_mut().for_each(|c| c.conn.on_timeout());
 
@@ -137,6 +144,9 @@ fn main() {
                 },
             };
             debug!("got {} bytes", len);
+
+            println!("141: socket got {} bytes", len);
+            timeout_time = Instant::now() + timeout;
 
             let pkt_buf = &mut buf[..len];
 

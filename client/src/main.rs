@@ -142,8 +142,12 @@ fn main() {
     // let mut path_stats;
     // measure_path_stats_before_send(&conn, &mut records, idx, messages[idx]);
 
+
+    let mut timeout_time = Instant::now() + conn.timeout().unwrap();
+
     loop {
-        poll.poll(&mut events, conn.timeout()).unwrap();
+        // poll.poll(&mut events, conn.timeout()).unwrap();
+        poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
 
         /** Send messages via streams in the order */
         if conn.is_established() && idx < num_msg

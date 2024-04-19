@@ -36,30 +36,30 @@ mod prelude {
     pub use mio::net::UdpSocket;
     pub use common::*;
 }
-use std::hash::Hash;
 use crate::prelude::*;
-const HTTP_REQ_STREAM_ID: u64 = 4;
+const FIRST_STREAM_ID_UNI: u64 = 2;
+const STREAM_STEP : u64 = 4;
 
+const K :usize = 1_000;
+const M :usize = 1_000_000;
 
 fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let message = vec![1;MAX_MSG_SIZE];
 
-    // let args: Vec<String> = env::args().collect();
-    // let message_size : usize = args[1].parse().unwrap();
-    let filepath : &str  = EXAMPLE_3_CSV;
+    let filepath : &str  = "measurement_1MB_5MB_random.csv";
 
     // generate messages
     let mut messages : Vec<usize> = Vec::new();
     let message_generator : MessageGenerator = MessageGenerator{
-        min_size : 1_000_000,
-        max_size : MAX_MSG_SIZE,
-        step : 10,
-        step_mul : true,
-        repeat : 1000,
+        min_size : 1*M,
+        max_size : 5*M,
     };
-    message_generator.generate_messages(&mut messages);
+    // message_generator.generate_random_messages(&mut messages, 5_100);
+    for _ in 0..5200{
+        messages.push(1*M);
+    }
     // record
     let mut records : HashMap<usize, Record> = HashMap::new();
 
@@ -79,7 +79,7 @@ fn main() {
     let mut socket =
         UdpSocket::bind(bind_addr.parse().unwrap()).unwrap();
     poll.registry()
-        .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
+        .register(&mut socket, mio::Token(0), mio::Interest::READABLE | mio::Interest::WRITABLE)
         .unwrap();
 
     /** Configuration of quiche */
@@ -97,13 +97,11 @@ fn main() {
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
-    config.set_initial_max_stream_data_bidi_local(10_000_000);
-    config.set_initial_max_stream_data_bidi_remote(10_000_000);
-    config.set_initial_max_streams_bidi(100);
+    config.set_initial_max_stream_data_uni(1_000_000); // 1M
     config.set_initial_max_streams_uni(100);
     config.set_disable_active_migration(true);
-    config
-        .set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    // config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
 
     /** Connection */
     // Generate a random source connection ID for the connection.
@@ -115,6 +113,7 @@ fn main() {
 
     let mut conn = quiche::connect(url.domain(), &scid, local_addr, peer_addr, &mut config).unwrap();
 
+    let mut inital_packet = true;
     /** Initial send for the server to accept this client */
     let (write, send_info) = conn.send(&mut out).expect("initial send failed");
 
@@ -129,62 +128,104 @@ fn main() {
 
     /** variables for sending streams */
     let num_msg: usize = messages.len(); // the number of messages
-    let mut idx : usize= 0; // message index
+    let mut msg_idx: usize = 0; // message index
+    let mut msg_size = messages[msg_idx]; // the current message size
+    let mut rest_write = msg_size; // the rest bytes of the current message to be sent
 
-    let mut stream_id : u64 = 0; // stream id
-    let mut message_size = messages[idx]; // the current message size
-    let mut total_written = 0; // the total written bytes of the current message
-    let mut rest_write = message_size - total_written; // the rest bytes of the current message to be sent
-
-    let mut msg_send_started = false; // true if sending the current message starts
-    let mut send_timestamp;
-
-    // let mut path_stats;
-    // measure_path_stats_before_send(&conn, &mut records, idx, messages[idx]);
-
+    let mut stream_id : u64 = FIRST_STREAM_ID_UNI; // stream id
+    let mut ready :bool = true;
 
     let mut timeout_time = Instant::now() + conn.timeout().unwrap();
-
     loop {
-        // poll.poll(&mut events, conn.timeout()).unwrap();
-        poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
+        poll.poll(&mut events, conn.timeout()).unwrap();
+        // poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
 
-        /** Send messages via streams in the order */
-        if conn.is_established() && idx < num_msg
-        {
-            // if it's the first time to send the streams for a message, record the time and statistics
-            if !msg_send_started {
-                // Initiate the info for sending a message.
-                // stream_id = 0;
-                message_size = messages[idx];
-                total_written = 0;
-                rest_write = message_size - total_written;
-
-                send_timestamp = Instant::now();
-                // path_stats = conn.path_stats();
-
-                msg_send_started = true;
+        /** Read packets */
+        'read: loop {
+            if events.is_empty() {
+                debug!("timed out");
+                // println!("\t timed out");
+                conn.on_timeout();
+                break 'read;
             }
 
-            // If there are the rest bytes to be sent for a message, send them again.
+            let (len, from) = match socket.recv_from(&mut buf) {
+                Ok(v) => v,
+                Err(e) => {
+                    // There are no more UDP packets to read, so end the read loop.
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        debug!("recv() would block");
+                        // This packet is Ack for a stream.
+                        if !inital_packet {
+                            if rest_write <= 0 {
+                                // record RTT
+                                measure_actual_latency(msg_idx, &mut records);
+
+                                // move next message
+                                println!("[Sent Message idx : {}] ", msg_idx);
+                                msg_idx += 1; // next message
+                                ready = true;
+                            }
+                        } else {
+                            inital_packet = false;
+                        }
+                        break 'read;
+                    }
+                    panic!("recv() failed: {:?}", e);
+                },
+            };
+
+            debug!("got {} bytes", len);
+
+            let recv_info = quiche::RecvInfo {to: socket.local_addr().unwrap(), from };
+
+            // Process potentially coalesced packets.
+            let read = match conn.recv(&mut buf[..len], recv_info) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("recv failed: {:?}", e);
+                    continue 'read;
+                },
+            };
+            debug!("processed {} bytes", read);
+        }
+        /** Send messages via streams in the order */
+        if conn.is_established() && msg_idx < num_msg
+        {
+            if ready {
+                msg_size = messages[msg_idx]; // the current message size
+                rest_write = msg_size; // the rest bytes of the current message to be sent
+                stream_id = FIRST_STREAM_ID_UNI;
+                ready = false;
+                // measure
+                measure_path_stats_before_send(&mut conn, &mut records, msg_idx, msg_size);
+            }
+
             if rest_write > 0 {
-                let written = match conn.stream_send(stream_id, &message[..rest_write], true) {
+                let next_stream = conn.stream_writable_next();
+                let mut write_cap =0;
+
+                if next_stream.is_some() {
+                    stream_id= next_stream.unwrap();
+                }
+                if conn.stream_finished(stream_id) {
+                    // println!("\t stream finished");
+                } else {
+                    let cap = conn.stream_capacity(stream_id).unwrap();
+                    write_cap = std::cmp::min(rest_write, cap);
+                }
+                let written = match conn.stream_send(stream_id, &message[..write_cap], false) {
                     Ok(v) => v,
                     Err(quiche::Error::Done) => 0,
                     Err(e) => {
                         error!("{} stream send failed {:?}", conn.trace_id(), e);
                         println!("\t {} stream send failed {:?}", conn.trace_id(), e);
-                        return;
+                        break;
                     },
                 };
-
-                total_written += written;
-                rest_write = message_size - total_written;
-
-                println!("[Stream {}]\n \t Send Message idx : {}, total sent bytes : {}, rest bytes {}, written {}] ", stream_id, idx, total_written, rest_write,written);
-                // streams_in_use.insert(stream_id);
-                stream_id += 4;
-                stream_id %= 400;
+                rest_write -= written;
+                // println!("[Stream {}]\n \t Send Message idx : {}, rest bytes {}, written {}] ", stream_id, msg_idx, rest_write, written);
+                // stream_id += STREAM_STEP;
             }
         }
 
@@ -220,149 +261,12 @@ fn main() {
 
         /** Checking if the connection is closed */
         if conn.is_closed() {
-            info!("\n==Connection closed, {:?}", conn.stats());
-            if idx < num_msg {
-                /** reconnect */
-                SystemRandom::new().fill(&mut scid_base[..]).unwrap();
-                scid = quiche::ConnectionId::from_ref(&scid_base);
-
-                conn = quiche::connect(url.domain(), &scid, local_addr, peer_addr, &mut config).unwrap();
-
-                let (write, send_info) = conn.send(&mut out).expect("initial send failed");
-
-                while let Err(e) = socket.send_to(&out[..write], send_info.to) {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        debug!("send() would block");
-                        continue;
-                    }
-
-                    panic!("send() failed: {:?}", e);
-                }
-            } else {
-                println!("\t connection closed, {:?}", conn.stats());
-                break;
-            }
-        }
-
-        /** Read stream */
-        println!("[Read stream]");
-        // Process all readable streams.
-        for s in conn.readable() {
-            while let Ok((read, fin)) = conn.stream_recv(s, &mut buf) {
-                debug!("received {} bytes", read);
-                let stream_buf = &buf[..read];
-                debug!(
-                    "stream {} has {} bytes (fin? {})",
-                    s,
-                    stream_buf.len(),
-                    fin
-                );
-                println!(
-                    "\t stream {} has {} bytes (fin? {})",
-                    s,
-                    stream_buf.len(),
-                    fin
-                );
-
-                print!("{}", unsafe {
-                    std::str::from_utf8_unchecked(stream_buf)
-                });
-
-                if fin {
-                    /** stream is finished */
-                    println!("\t read {} stream finished", s);
-                    // measure_actual_rtt(idx, &mut records);
-                    // streams_in_use.remove(&s);
-
-                    if rest_write <= 0 {
-                        // /** Sending the current message is finished */
-                        // it means that sending a message is done.
-                        // record the measurement
-
-                        // move to the next message
-                        idx += 1;
-                        msg_send_started = false;
-                    }
-
-                    if idx == num_msg {
-                        println!("[Close connection : All stream read]");
-                        conn.close(true, 0x00, b"kthxbye").unwrap();
-                    }
-                }
-            }
-        }
-        /** Read packets */
-        'read: loop {
-            if events.is_empty() {
-                debug!("timed out");
-                println!("\t timed out");
-                conn.on_timeout();
-                break 'read;
-            }
-
-            let (len, from) = match socket.recv_from(&mut buf) {
-                Ok(v) => v,
-                Err(e) => {
-                    // There are no more UDP packets to read, so end the read loop.
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        debug!("recv() would block");
-                        println!("[end read]");
-                        break 'read;
-                    }
-                    panic!("recv() failed: {:?}", e);
-                },
-            };
-
-            debug!("got {} bytes", len);
-
-            let recv_info = quiche::RecvInfo {to: socket.local_addr().unwrap(), from };
-
-            // Process potentially coalesced packets.
-            let read = match conn.recv(&mut buf[..len], recv_info) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("recv failed: {:?}", e);
-                    continue 'read;
-                },
-            };
-            debug!("processed {} bytes", read);
-        }
-        /** Checking if the connection is closed */
-        if conn.is_closed() {
             info!("connection closed, {:?}", conn.stats());
-            if idx < num_msg {
-                /** reconnect */
-                SystemRandom::new().fill(&mut scid_base[..]).unwrap();
-                scid = quiche::ConnectionId::from_ref(&scid_base);
-
-                conn = quiche::connect(url.domain(), &scid, local_addr, peer_addr, &mut config).unwrap();
-
-                let (write, send_info) = conn.send(&mut out).expect("initial send failed");
-
-                while let Err(e) = socket.send_to(&out[..write], send_info.to) {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        debug!("send() would block");
-                        continue;
-                    }
-
-                    panic!("send() failed: {:?}", e);
-                }
-            } else {
-                println!("\t connection closed, {:?}", conn.stats());
-                break;
-            }
-
+            println!("\t connection closed, {:?}", conn.stats());
+            break;
         }
     }
     // write the records to the csv file
-    // write_records_to_csv(filepath, &records);
+    write_records_to_csv(filepath, &records);
 }
-
-fn hex_dump(buf: &[u8]) -> String {
-    let vec: Vec<String> = buf.iter().map(|b| format!("{b:02x}")).collect();
-
-    vec.join("")
-}
-
-
 

@@ -37,7 +37,7 @@ mod prelude {
     pub use common::*;
 }
 use std::time::{Duration, Instant};
-use quiche::CongestionControlAlgorithm;
+use mio::net::UdpSocket;
 use crate::prelude::*;
 
 struct PartialResponse {
@@ -53,13 +53,10 @@ struct Client {
 }
 
 type ClientMap = HashMap<quiche::ConnectionId<'static>, Client>;
-
 fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
-
-    let mut stream_buf = vec![1;MAX_MSG_SIZE];
-
+    let mut stream_buf= [0;MAX_MSG_SIZE];
     // Setup the event loop.
     let mut poll = mio::Poll::new().unwrap();
     let mut events = mio::Events::with_capacity(1024);
@@ -74,29 +71,22 @@ fn main() {
     // Create the configuration for the QUIC connections.
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION).unwrap();
 
-    config
-        .load_cert_chain_from_pem_file("cert.crt")
-        .unwrap();
-    config
-        .load_priv_key_from_pem_file("cert.key")
-        .unwrap();
+    // for TLS
+    config.load_cert_chain_from_pem_file("cert.crt").unwrap();
+    config.load_priv_key_from_pem_file("cert.key").unwrap();
 
-    config
-        .set_application_protos(&[b"http/0.9", ])
-        .unwrap();
+    config.set_application_protos(&[b"http/0.9", ]).unwrap();
 
     config.set_max_idle_timeout(5_000);
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
-    config.set_initial_max_stream_data_bidi_local(10_000_000);
-    config.set_initial_max_stream_data_bidi_remote(10_000_000);
-    config.set_initial_max_stream_data_uni(1_000_000);
-    config.set_initial_max_streams_bidi(100);
-    config.set_initial_max_streams_uni(100);
+    config.set_initial_max_stream_data_uni(1_000_000); // 1M
+    config.set_initial_max_streams_uni(1_000);
     config.set_disable_active_migration(true);
     config.enable_early_data();
-    config.set_cc_algorithm(CongestionControlAlgorithm::BBR2);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    // config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
 
     let rng = SystemRandom::new();
     let conn_id_seed =
@@ -109,54 +99,42 @@ fn main() {
     // Find the shorter timeout from all the active connections.
     //
     // TODO: use event loop that properly supports timers
-    let mut timeout = Duration::from_secs(0); // must be set later
-    let mut timeout_time = Instant::now() + timeout;
+    // let mut timeout = Duration::from_secs(0); // must be set later
+    // let mut timeout_time = Instant::now() + timeout;
 
     loop {
         // Find the shorter timeout from all the active connections.
         //
         // TODO: use event loop that properly supports timers
-        // let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
-        // poll.poll(&mut events, timeout).unwrap();
-        timeout = clients.values().filter_map(|c| c.conn.timeout()).min().unwrap_or_else(|| Duration::from_secs(0));
-        poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
+        let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
+        poll.poll(&mut events, timeout).unwrap();
+        // timeout = clients.values().filter_map(|c| c.conn.timeout()).min().unwrap_or_else(|| Duration::from_secs(0));
+        // poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
 
         'read: loop {
-            if events.is_empty() && (!clients.is_empty() && timeout_time < Instant::now()){
+            if events.is_empty(){
                 debug!("timed out");
                 clients.values_mut().for_each(|c| c.conn.on_timeout());
-
                 break 'read;
             }
 
             let (len, from) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
-
                 Err(e) => {
-                    // There are no more UDP packets to read, so end the read
-                    // loop.
                     if e.kind() == std::io::ErrorKind::WouldBlock {
                         debug!("recv() would block");
                         break 'read;
                     }
-
                     panic!("recv() failed: {:?}", e);
                 },
             };
             debug!("got {} bytes", len);
-
-            println!("141: socket got {} bytes", len);
-            timeout_time = Instant::now() + timeout;
+            // timeout_time = Instant::now() + timeout;
 
             let pkt_buf = &mut buf[..len];
-
             // Parse the QUIC packet's header.
-            let hdr = match quiche::Header::from_slice(
-                pkt_buf,
-                quiche::MAX_CONN_ID_LEN,
-            ) {
+            let hdr = match quiche::Header::from_slice(pkt_buf,quiche::MAX_CONN_ID_LEN) {
                 Ok(v) => v,
-
                 Err(e) => {
                     error!("Parsing packet header failed: {:?}", e);
                     continue 'read;
@@ -168,49 +146,23 @@ fn main() {
             let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
             let conn_id = conn_id.to_vec().into();
 
-            // Lookup a connection based on the packet's connection ID. If there
-            // is no connection matching, create a new one.
-            let client = if !clients.contains_key(&hdr.dcid) &&
-                !clients.contains_key(&conn_id)
+            // Lookup a connection based on the packet's connection ID. If there is no connection matching, create a new one.
+            let client = if !clients.contains_key(&hdr.dcid) && !clients.contains_key(&conn_id)
             {
-                println!("==Connection accepting=======");
                 if hdr.ty != quiche::Type::Initial {
                     error!("Packet is not Initial");
                     continue 'read;
                 }
 
-                if !quiche::version_is_supported(hdr.version) {
-                    warn!("Doing version negotiation");
-
-                    let len =
-                        quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out)
-                            .unwrap();
-
-                    let out = &out[..len];
-
-                    if let Err(e) = socket.send_to(out, from) {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            debug!("send() would block");
-                            break;
-                        }
-
-                        panic!("send() failed: {:?}", e);
-                    }
-                    continue 'read;
-                }
-
                 let mut scid = [0; quiche::MAX_CONN_ID_LEN];
                 scid.copy_from_slice(&conn_id);
-
                 let scid = quiche::ConnectionId::from_ref(&scid);
 
                 // Token is always present in Initial packets.
                 let token = hdr.token.as_ref().unwrap();
-
                 // Do stateless retry if the client didn't send a token.
                 if token.is_empty() {
                     warn!("Doing stateless retry");
-
                     let new_token = mint_token(&hdr, &from);
 
                     let len = quiche::retry(
@@ -230,14 +182,12 @@ fn main() {
                             debug!("send() would block");
                             break;
                         }
-
                         panic!("send() failed: {:?}", e);
                     }
                     continue 'read;
                 }
 
                 let odcid = validate_token(&from, token);
-
                 // The token was not valid, meaning the retry failed, so
                 // drop the packet.
                 if odcid.is_none() {
@@ -257,20 +207,12 @@ fn main() {
                 debug!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
                 println!(" - New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
 
-                let conn = quiche::accept(
-                    &scid,
-                    odcid.as_ref(),
-                    local_addr,
-                    from,
-                    &mut config,
-                )
-                    .unwrap();
+                let conn = quiche::accept(&scid, odcid.as_ref(), local_addr, from,&mut config,).unwrap();
 
                 let client = Client {
                     conn,
                     partial_responses: HashMap::new(),
                 };
-
                 clients.insert(scid.clone(), client);
 
                 clients.get_mut(&scid).unwrap()
@@ -282,65 +224,40 @@ fn main() {
                 }
             };
 
-            let recv_info = quiche::RecvInfo {
-                to: socket.local_addr().unwrap(),
-                from,
-            };
+            let recv_info = quiche::RecvInfo {to: socket.local_addr().unwrap(),from};
 
             // Process potentially coalesced packets.
             let read = match client.conn.recv(pkt_buf, recv_info) {
                 Ok(v) => v,
-
                 Err(e) => {
                     error!("{} recv failed: {:?}", client.conn.trace_id(), e);
                     continue 'read;
                 },
             };
-
             debug!("{} processed {} bytes", client.conn.trace_id(), read);
 
             if client.conn.is_in_early_data() || client.conn.is_established() {
                 // Handle writable streams.
-
                 for stream_id in client.conn.writable() {
+                    println!("Writable stream");
                     handle_writable(client, stream_id);
                 }
-
                 // Process all readable streams.
                 println!("[Read Stream]");
                 for s in client.conn.readable() {
-                    while let Ok((read, fin)) =
-                        client.conn.stream_recv(s, &mut stream_buf)
+                    while let Ok((read, fin)) = client.conn.stream_recv(s, &mut stream_buf)
                     {
-                        debug!(
-                            "{} received {} bytes",
-                            client.conn.trace_id(),
-                            read
-                        );
-
-                        let stream_buf = &buf[..read];
-
-                        debug!(
-                            "{} stream {} has {} bytes (fin? {})",
-                            client.conn.trace_id(),
-                            s,
-                            stream_buf.len(),
-                            fin
-                        );
-                        println!(
-                            "\t stream {} has {} bytes (fin? {})",
-                            s,
-                            stream_buf.len(),
-                            fin
-                        );
-                        handle_stream(client, s, stream_buf);
+                        debug!("{} received {} bytes", client.conn.trace_id(), read);
+                        let stream_buf = &stream_buf[..read];
+                        debug!("{} stream {} has {} bytes (fin? {})", client.conn.trace_id(),s,stream_buf.len(),fin);
+                        println!("\t stream {} has {} bytes (fin? {})",s,stream_buf.len(),fin);
+                        handle_stream(client, &mut socket, s);
                     }
                 }
 
 
             }
         }
-
 
         for client in clients.values_mut() {
             loop {
@@ -444,37 +361,37 @@ fn validate_token<'a>(src: &net::SocketAddr, token: &'a [u8], ) -> Option<quiche
 }
 
 /// Handles incoming HTTP/0.9 requests.
-fn handle_stream(client: &mut Client, stream_id: u64, buf: &[u8]) {
+fn handle_stream(client: &mut Client, socket: &mut UdpSocket, stream_id: u64) {
     let conn = &mut client.conn;
-    let body : Vec<u8> = vec![0];
+    let mut body = stream_id.to_le_bytes();
 
-    println!("[Send Stream]");
-    info!(
-            "{} sending response of size {} on stream {}",
-            conn.trace_id(),
-            body.len(),
-            stream_id
-        );
-    println!(
-            "\t sending response of size {} on stream {}",
-            body.len(),
-            stream_id
-        );
+    println!("[Send ack] stream id : {} ", stream_id);
+    loop {
+        let (write, send_info) = match client.conn.send(&mut body) {
+            Ok(v) => v,
 
-    let written = match conn.stream_send(stream_id, &body, true) {
-        Ok(v) => v,
+            Err(quiche::Error::Done) => {
+                debug!("{} done writing", client.conn.trace_id());
+                break;
+            },
 
-        Err(quiche::Error::Done) => 0,
+            Err(e) => {
+                error!("{} send failed: {:?}", client.conn.trace_id(), e);
 
-        Err(e) => {
-            error!("{} stream send failed {:?}", conn.trace_id(), e);
-            return;
-        },
-    };
+                client.conn.close(false, 0x1, b"fail").ok();
+                break;
+            },
+        };
 
-    if written < body.len() {
-        let response = PartialResponse { body, written };
-        client.partial_responses.insert(stream_id, response);
+        if let Err(e) = socket.send_to(&body[..write], send_info.to) {
+            if e.kind() == std::io::ErrorKind::WouldBlock {
+                debug!("send() would block");
+                break;
+            }
+
+            panic!("send() failed: {:?}", e);
+        }
+        debug!("{} written {} bytes", client.conn.trace_id(), write);
     }
 }
 

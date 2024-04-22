@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = ["client", "server", "common", "experiment"]
+members = ["client", "server"]
 
 [[bin]]
 name = "client"
@@ -14,11 +14,4 @@ path = "/client/src/main.rs"
 name = "server"
 path = "/server/src/main.rs"
 
-[[bin]]
-name = "experiment"
-path = "experiment/src/main.rs"
-
-[lib]
-name = "common"
-path = "/common/src/lib.rs"
 #crate-type = ["rlib"]

@@ -10,7 +10,7 @@ import scipy.stats as stats
 
 class QuantileBaseline:
     # features : msg_size, sending_rate, rtt
-    def __init__(self, num_data=200):
+    def __init__(self, num_data=500):
         self.historical_data = HistoricalData(num_data)
 
     def gaussian(self, quantile, feature, use_sampling=False):
@@ -48,6 +48,7 @@ class QuantileBaseline:
             return np.percentile(samples, 100 * quantile)
         except:
             return -1
+
     def add_features(self, msg_size, sending_rate, rtt):
         self.historical_data.add_features(msg_size, sending_rate, rtt)
 

@@ -26,44 +26,148 @@
 
 #[macro_use]
 extern crate log;
-extern crate common;
 mod prelude {
     pub use std::env;
+    pub use std::fs::{OpenOptions};
     pub use std::collections::{HashMap, HashSet};
     pub use std::time::{Duration, Instant};
     pub use ring::rand::*;
+    pub use rand::Rng;
     pub use quiche;
     pub use mio::net::UdpSocket;
-    pub use common::*;
+    pub use csv::Writer;
 }
 use crate::prelude::*;
-const FIRST_STREAM_ID_UNI: u64 = 2;
-const STREAM_STEP : u64 = 4;
 
+pub struct MessageGenerator {
+    pub min_size : usize,
+    pub max_size : usize,
+}
+impl MessageGenerator {
+    pub fn generate_messages(&self, messages : &mut Vec<usize>, step : usize, step_mul : bool, repeat : usize) {
+        let mut size : usize = self.min_size;
+        while size <= self.max_size {
+            for i in 0..repeat {
+                messages.push(size);
+            }
+            if(step_mul){
+                size *= step;
+            } else {
+                size += step;
+            }
+        }
+    }
+    pub fn generate_random_messages(&self, messages : &mut Vec<usize>, num_msg : usize) {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..num_msg {
+            let random_number: usize = rng.gen_range(self.min_size..self.max_size);
+            messages.push(random_number);
+        }
+    }
+
+}
+pub struct Record {
+    pub message_size : usize,
+    pub sending_rate: u64,
+    pub rtt: Duration,
+    pub latency : Duration,
+    pub send_timestamp : Instant,
+    pub ack_timestamp : Instant,
+}
+impl Record {
+    pub fn set_ack_timestamp(&mut self){
+        self.ack_timestamp = Instant::now();
+    }
+    pub fn measure_actual_rtt(&mut self){
+        self.latency = self.ack_timestamp.duration_since(self.send_timestamp);
+    }
+}
+
+pub fn measure_path_stats_before_send(
+    conn : &quiche::Connection,
+    records: &mut HashMap<usize, Record>,
+    record_id : usize,
+    message_size : usize,
+) {
+    // Assume that we have just one path between connection.
+    let path_stats : quiche::PathStats = conn.path_stats().next().unwrap();
+    // record
+    let record: Record = Record{
+        message_size : message_size,
+        sending_rate: path_stats.delivery_rate,
+        rtt: path_stats.rtt,
+        latency : Duration::new(0,0),
+        send_timestamp : Instant::now(),
+        ack_timestamp : Instant::now(),
+    };
+    records.insert(record_id, record);
+}
+
+pub fn measure_actual_latency(
+    record_id : usize,
+    records: &mut HashMap<usize, Record>
+) {
+    // Calculate the actual rtt
+    let mut record: &mut Record = records.get_mut(&record_id).unwrap();
+    record.set_ack_timestamp();
+    record.measure_actual_rtt();
+}
+pub fn write_records_to_csv(filepath : &str, records : & HashMap<usize, Record>) {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(filepath).unwrap();
+
+    let mut writer = Writer::from_writer(file);
+
+    // Data
+    for (id, record) in records.iter() {
+        writer.write_record(&[
+            id.to_string(),
+            record.message_size.to_string(),
+            record.sending_rate.to_string(),
+            record.rtt.as_micros().to_string(),
+            record.latency.as_micros().to_string(),
+        ]).expect("write record error");
+        writer.flush().expect("flush error");
+    }
+}
+
+pub const EXAMPLE_CSV : &str= "../plotting/example.csv";
+pub const EXAMPLE_2_CSV : &str= "../plotting/example2.csv";
+pub const EXAMPLE_3_CSV : &str= "../plotting/example3.csv";
+pub const EXAMPLE_4_CSV : &str= "../plotting/example4.csv";
+pub const ETHERNET_CSV : &str= "ethernet.csv";
+pub const WIFI_CSV : &str= "wifi.csv";
+const FIRST_STREAM_ID_UNI: u64 = 2;
+pub const MAX_DATAGRAM_SIZE: usize = 1350;
+pub const MAX_MSG_SIZE : usize = 6_000_000;
 const K :usize = 1_000;
 const M :usize = 1_000_000;
-
+const NUM_MSG : usize = 5200;
 fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let message = vec![1;MAX_MSG_SIZE];
 
-    let filepath : &str  = "measurement_1MB_5MB_random.csv";
+    // let filepath : &str  = "/test.csv";
+    let filepath : &str  = "/app/data/ethernet_01loss.csv";
+    // let filepath : &str  = "/app/data/wlan_100mbit_5ms.csv";
 
     // generate messages
     let mut messages : Vec<usize> = Vec::new();
     let message_generator : MessageGenerator = MessageGenerator{
-        min_size : 1*M,
-        max_size : 5*M,
+        min_size : 500*K,
+        max_size : 6*M,
     };
-    // message_generator.generate_random_messages(&mut messages, 5_100);
-    for _ in 0..5200{
-        messages.push(1*M);
-    }
+    message_generator.generate_random_messages(&mut messages, NUM_MSG);
     // record
     let mut records : HashMap<usize, Record> = HashMap::new();
 
     /** socket binding */
+    // let mut url = url::Url::parse("https://server:4433/").unwrap();
     let mut url = url::Url::parse("https://127.0.0.1:4433/").unwrap();
 
     // Set up the event loop.
@@ -72,7 +176,7 @@ fn main() {
 
     let peer_addr = url.socket_addrs(|| None).unwrap()[0];
     let bind_addr = match peer_addr {
-        std::net::SocketAddr::V4(_) => "127.0.0.1:3344",
+        std::net::SocketAddr::V4(_) => "0.0.0.0:3344",
         std::net::SocketAddr::V6(_) => "[::]:0",
     };
 
@@ -97,7 +201,7 @@ fn main() {
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
-    config.set_initial_max_stream_data_uni(1_000_000); // 1M
+    config.set_initial_max_stream_data_uni(6_000_000); // 1M
     config.set_initial_max_streams_uni(100);
     config.set_disable_active_migration(true);
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
@@ -135,10 +239,8 @@ fn main() {
     let mut stream_id : u64 = FIRST_STREAM_ID_UNI; // stream id
     let mut ready :bool = true;
 
-    let mut timeout_time = Instant::now() + conn.timeout().unwrap();
     loop {
         poll.poll(&mut events, conn.timeout()).unwrap();
-        // poll.poll(&mut events, Some(Duration::from_micros(100))).unwrap();
 
         /** Read packets */
         'read: loop {
@@ -157,7 +259,7 @@ fn main() {
                         debug!("recv() would block");
                         // This packet is Ack for a stream.
                         if !inital_packet {
-                            if rest_write <= 0 {
+                            if rest_write <= 0 && msg_idx < num_msg {
                                 // record RTT
                                 measure_actual_latency(msg_idx, &mut records);
 
@@ -214,7 +316,7 @@ fn main() {
                     let cap = conn.stream_capacity(stream_id).unwrap();
                     write_cap = std::cmp::min(rest_write, cap);
                 }
-                let written = match conn.stream_send(stream_id, &message[..write_cap], false) {
+                let written = match conn.stream_send(stream_id, &message[..rest_write], false) {
                     Ok(v) => v,
                     Err(quiche::Error::Done) => 0,
                     Err(e) => {
@@ -224,8 +326,7 @@ fn main() {
                     },
                 };
                 rest_write -= written;
-                // println!("[Stream {}]\n \t Send Message idx : {}, rest bytes {}, written {}] ", stream_id, msg_idx, rest_write, written);
-                // stream_id += STREAM_STEP;
+                println!("[Stream {}]\n \t Send Message idx : {}, rest bytes {}, written {}] ", stream_id, msg_idx, rest_write, written);
             }
         }
 

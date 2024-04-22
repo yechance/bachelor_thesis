@@ -25,30 +25,92 @@ PREDICTED_LATENCY_1M_SAMPLE = "results/predicted_latency_sample.csv"
 PREDICTED_LATENCY_99_1M = "results/predicted_latency_99_1M.csv"
 EVALUATION_99_1M = "results/evaluation_99_1M.csv"
 
-# def do_experements(load_file, save_file):
-#     experiment_baseline = Experiment(file)
-#     # 백분위수 비교
-#     list_percentile = np.arange(50, 100, 2)
-#     # results = experiment_baseline.performance_model_by_percentile(list_percentile, save_path_percentiles)
-#
-#     # 모델 성능
-#     # results = experiment_baseline.performance_model_by_percentile(list_percentile, save_path_percentiles)
-#     results = experiment_baseline.performance_model_by_percentile(list_percentile, save_path_model_single_feature, True,
-#                                                                   False, "model_single_feature")
-#
-#     # 베이스라인 성능
-#     # results = experiment_baseline.performance_compared_baselines(save_path_baselines)
+HISTORICAL_DATA_SIZE_L_CSV = "results/historical_data_size_loopback.csv"
+HISTORICAL_DATA_SIZE_SAMPLING_L_CSV = "results/historical_data_size_sampling_loopback.csv"
+PERIOD_L = "results/update_period_loopback.csv"
+
+HISTORICAL_DATA_SIZE_L_95_CSV = "results/historical_data_size_loopback_95.csv"
+HISTORICAL_DATA_SIZE_SAMPLING_L_95_CSV = "results/historical_data_size_sampling_loopback_95.csv"
+PERIOD_L_95 = "results/update_period_loopback_95.csv"
+
+QUANTILES_L_CSV = "results/model_loopback.csv"
+QUANTILES_NON_LUK_L_CSV = "results/model_without_luk_loopback.csv"
+QUANTILES_MSG_L_CSV = "results/model_only_msg_size_loopback.csv"
+
+BASELINE_QUANTILE_L_CSV = "results/quantile_baselines_loopback.csv"
+BASELINE_QUANTILE_SAMPLING_L_CSV = "results/quantile_baselines_sampling_loopback.csv"
+
+PREDICTED_LATENCY_L_99 = "results/predicted_latency_99_loopback.csv"
+EVALUATION_L_99 = "results/evaluation_99_loopback.csv"
+# PREDICTED_LATENCY_1M_SAMPLE = "results/predicted_latency_sample.csv"
+
+# PREDICTED_LATENCY_99_1M = "results/predicted_latency_99_1M.csv"
+# EVALUATION_99_1M = "results/evaluation_99_1M.csv"
 
 
 if __name__ == '__main__':
+    data_size = np.arange(50, 1000, 50)
+    period = np.arange(10, 400, 10)
+    quantiles = np.round(
+        np.arange(900, 1000, 5) / 1000,
+        3
+    )
+
     measurement_1MB_5MB = "data/measurement_1MB_5MB_random.csv"
     measurement_1MB = "data/measurement_1MB_random.csv"
+    measurement_L = "data/500KB_6MB_5ms_1000mbit.csv"
 
-    experiment_baseline = Experiment(measurement_1MB, 5000, 200)
-    # experiment_baseline = Experiment(measurement_1MB_5MB, 4900, 200)
+    eth_tc = "./docker_data/eth_tc_1000mbit_1ms.csv"
+    eth_non_tc = "./docker_data/eth_non_tc.csv"
 
-    df = experiment_baseline.pred_latency()
-    df.to_csv(PREDICTED_LATENCY_99_1M)
+    exp_tc = Experiment(eth_tc, 5000, 200)
+    exp_n_tc = Experiment(eth_non_tc, 5000, 200)
+
+    # # 히스토리컬 데이터 사이즈
+    # exp_tc.performance_different_data_size(data_size, 0.95, False).to_csv("./docker_results/h_data_tc.csv")
+    exp_tc.performance_different_data_size(data_size, 0.95, True).to_csv("./docker_results/h_data_tc_sample.csv")
+    # exp_n_tc.performance_different_data_size(data_size, 0.95, False).to_csv("./docker_results/h_data_non_tc.csv")
+    # exp_n_tc.performance_different_data_size(data_size, 0.95, True).to_csv("./docker_results/h_data_non_tc_sample.csv")
+
+    # # 업데이트
+    # exp_tc.period_update(period,0.95).to_csv("./docker_results/period_tc.csv")
+    # exp_n_tc.period_update(period, 0.95).to_csv("./docker_results/period_non_tc.csv")
+
+    # 분위수
+    # exp_tc.compared_baselines_quantile(quantiles, False).to_csv("./docker_results/baseline_q_tc.csv")
+    # exp_tc.compared_baselines_quantile(quantiles, True).to_csv("./docker_results/baseline_q_tc_sample.csv")
+    #
+    # exp_n_tc.compared_baselines_quantile(quantiles, False).to_csv("./docker_results/baseline_q_non_tc.csv")
+    # exp_n_tc.compared_baselines_quantile(quantiles, True).to_csv("./docker_results/baseline_q_non_tc_sample.csv")
+    #
+    # exp_tc.model_by_percentile(quantiles, True, True).to_csv("./docker_results/model_q_tc.csv")
+    # exp_tc.model_by_percentile(quantiles, True, False).to_csv("./docker_results/model_msg_q_tc_sample.csv")
+    # exp_tc.model_by_percentile(quantiles, False, True).to_csv("./docker_results/model_non_luk_q_non_tc.csv")
+    #
+    # exp_n_tc.model_by_percentile(quantiles, True, True).to_csv("./docker_results/model_q_tc.csv")
+    # exp_n_tc.model_by_percentile(quantiles, True, False).to_csv("./docker_results/model_msg_q_tc_sample.csv")
+    # exp_n_tc.model_by_percentile(quantiles, False, True).to_csv("./docker_results/model_non_luk_q_non_tc.csv")
+
+    # 예측 레이턴시
+    # 분위수 50, 95, 99
+    # exp_tc.pred_latency(0.95, False).to_csv("./docker_results/q_95_tc.csv")
+    # exp_n_tc.pred_latency(0.95, False).to_csv("./docker_results/q_95_non_tc.csv")
+
+    # exp_tc.pred_latency(0.99, False).to_csv("./docker_results/q_99_tc.csv")
+    # exp_n_tc.pred_latency(0.99, False).to_csv("./docker_results/q_99_non_tc.csv")
+    #
+    # exp_tc.pred_latency(0.5, False).to_csv("./docker_results/q_50_tc.csv")
+    # exp_n_tc.pred_latency(0.5, False).to_csv("./docker_results/q_50_non_tc.csv")
+    #
+    # exp_tc.pred_latency(0.95, True).to_csv("./docker_results/q_95_tc_sample.csv")
+    # exp_n_tc.pred_latency(0.95, True).to_csv("./docker_results/q_95_non_tc_sample.csv")
+    #
+    # exp_tc.pred_latency(0.99, True).to_csv("./docker_results/q_99_tc.csv")
+    # exp_n_tc.pred_latency(0.99, True).to_csv("./docker_results/q_99_non_tc_sample.csv")
+    #
+    # exp_tc.pred_latency(0.5, True).to_csv("./docker_results/q_50_tc_sample.csv")
+    # exp_n_tc.pred_latency(0.5, True).to_csv("./docker_results/q_50_non_tc_sample.csv")
+    # df.to_csv(PREDICTED_LATENCY_99_1M)
     #
     # df = experiment_baseline.pred_latency()
     # df.to_csv(PREDICTED_LATENCY_95)
@@ -56,77 +118,7 @@ if __name__ == '__main__':
     # df = experiment_baseline.pred_latency()
     # df.to_csv(PREDICTED_LATENCY_50)
 
-    df_model = experiment_baseline.performance_model_by_percentile(
-            [0.99],
-    )
 
-    df_baseline = experiment_baseline.performance_compared_baselines_quantile(
-            [0.99], False
-    )
-    evaluation_99 = pd.concat([df_model, df_baseline])
-    evaluation_99.to_csv(EVALUATION_99_1M)
-
-    # data_size = np.concatenate([np.arange(10, 100, 10), np.arange(100, 1000, 50)])
-    # period = np.arange(1, 50, 1)
-    #
-    # quantiles = np.round(
-    #     np.concatenate([np.arange(0.5, 1, 0.05), np.arange(0.951, 1, 0.01)]),
-    #     3
-    # )
-
-    # df = experiment_baseline.performance_model_by_percentile(
-    #     quantiles,
-    #     True,
-    #     True,
-    # )
-    # df.to_csv(QUANTILES_CSV)
-    #
-    # df = experiment_baseline.performance_model_by_percentile(
-    #     quantiles,
-    #     False,
-    #     True,
-    # )
-    # df.to_csv(QUANTILES_NON_LUK_CSV)
-    #
-    # df = experiment_baseline.performance_model_by_percentile(
-    #     quantiles,
-    #     True,
-    #     False,
-    # )
-    # df.to_csv(QUANTILES_MSG_CSV)
-
-    # df = experiment_baseline.performance_compared_baselines_quantile(
-    #     quantiles,
-    #     False
-    # )
-    # df.to_csv(BASELINE_QUANTILE_CSV)
-    #
-    # df = experiment_baseline.performance_compared_baselines_quantile(
-    #     quantiles,
-    #     True
-    # )
-    # df.to_csv(BASELINE_QUANTILE_SAMPLING_CSV)
-
-    # 히스토리컬 데이터 사이즈와 업데이트 주기에 따른 평가
-    # df = experiment_baseline.performance_different_data_size(
-    #     data_size,
-    #     0.95,
-    #     False
-    # )
-    # df.to_csv(HISTORICAL_DATA_SIZE_CSV)
-    #
-    # df = experiment_baseline.performance_different_data_size(
-    #     data_size,
-    #     0.95,
-    #     True
-    # )
-    # df.to_csv(HISTORICAL_DATA_SIZE_SAMPLING_CSV)
-    #
-    # df = experiment_baseline.period_update(
-    #     period,
-    #     0.95
-    # )
-    # df.to_csv(PERIOD)
 
 
 # import asyncio

@@ -6,7 +6,7 @@ from prediction.lookup_table import LookupTable
 
 
 class PredictionModel:
-    def __init__(self, has_luk=True, update_period=40, num_data=200, use_mean=True):
+    def __init__(self, has_luk=True, update_period=40, num_data=400, use_mean=True):
         self.historical_data = HistoricalData(num_data, use_mean)
         self.has_luk = has_luk
         self.luk = LookupTable(update_period) if has_luk else None

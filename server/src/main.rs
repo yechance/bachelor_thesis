@@ -26,15 +26,12 @@
 
 #[macro_use]
 extern crate log;
-extern crate common;
 mod prelude {
     pub use std::net;
     pub use std::collections::HashMap;
     pub use ring::rand::*;
 
     pub use quiche;
-
-    pub use common::*;
 }
 use std::time::{Duration, Instant};
 use mio::net::UdpSocket;
@@ -52,6 +49,9 @@ struct Client {
     partial_responses: HashMap<u64, PartialResponse>,
 }
 
+pub const MAX_DATAGRAM_SIZE: usize = 1350;
+pub const MAX_MSG_SIZE : usize = 6_000_000;
+
 type ClientMap = HashMap<quiche::ConnectionId<'static>, Client>;
 fn main() {
     let mut buf = [0; 65535];
@@ -63,7 +63,7 @@ fn main() {
 
     // Create the UDP listening socket, and register it with the event loop.
     let mut socket =
-        mio::net::UdpSocket::bind("127.0.0.1:4433".parse().unwrap()).unwrap();
+        mio::net::UdpSocket::bind("0.0.0.0:4433".parse().unwrap()).unwrap();
     poll.registry()
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
         .unwrap();
@@ -81,7 +81,7 @@ fn main() {
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
-    config.set_initial_max_stream_data_uni(1_000_000); // 1M
+    config.set_initial_max_stream_data_uni(6_000_000); // 1M
     config.set_initial_max_streams_uni(1_000);
     config.set_disable_active_migration(true);
     config.enable_early_data();
@@ -243,14 +243,14 @@ fn main() {
                     handle_writable(client, stream_id);
                 }
                 // Process all readable streams.
-                println!("[Read Stream]");
+                // println!("[Read Stream]");
                 for s in client.conn.readable() {
                     while let Ok((read, fin)) = client.conn.stream_recv(s, &mut stream_buf)
                     {
                         debug!("{} received {} bytes", client.conn.trace_id(), read);
                         let stream_buf = &stream_buf[..read];
                         debug!("{} stream {} has {} bytes (fin? {})", client.conn.trace_id(),s,stream_buf.len(),fin);
-                        println!("\t stream {} has {} bytes (fin? {})",s,stream_buf.len(),fin);
+                        // println!("\t stream {} has {} bytes (fin? {})",s,stream_buf.len(),fin);
                         handle_stream(client, &mut socket, s);
                     }
                 }

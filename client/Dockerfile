@@ -1,11 +1,10 @@
 FROM rust:latest as builder
 
-# Install build dependencies
 RUN apt-get update && apt-get install -y cmake
 
-WORKDIR /usr/src/app
-RUN USER=root cargo new --bin thesis_client
-WORKDIR /usr/src/app/thesis_client
+WORKDIR /app
+RUN USER=root cargo new --bin client
+WORKDIR /app/client
 
 # COPY RUST project files into the container
 COPY ./Cargo.toml ./Cargo.toml
@@ -14,17 +13,20 @@ COPY ./src ./src
 # Build the Rust project
 RUN cargo build --release
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y iproute2 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
-WORKDIR /usr/src/app
+WORKDIR /app
+RUN mkdir /app/data
 
 # COPY only the necessary files from the builder image
-COPY --from=builder /usr/src/app/thesis_client/target/release/client .
+COPY --from=builder /app/client/target/release/client .
+COPY ./start.sh .
 
-# Expose the port that the application listens on.
-EXPOSE 3000
-# Args : message size (default : 100Mb)
-ENV message_size = 100000000
+RUN chmod +x /app/start.sh
 
-CMD ["./client", "${message_size}"]
+CMD ["/app/start.sh"]

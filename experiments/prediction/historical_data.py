@@ -2,9 +2,9 @@ import numpy as np
 
 
 class HistoricalData:
-    def __init__(self, num_data=200, use_mean=True):
+    def __init__(self, num_data, use_mean=True):
         self.num_data = num_data
-        self.num_mean_data = 10
+        self.num_mean_data = 20
         self.use_mean = use_mean
 
         self.message_size = np.zeros(num_data)

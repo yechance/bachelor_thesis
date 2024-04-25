@@ -1,20 +1,27 @@
+version: '3.8'
 services:
-  client:
-    build: ./client
-    ports:
-      - "3000:3000"
   server:
     build: ./server
+    container_name: server
+    networks:
+      - ethernet
+    cap_add:
+      - NET_ADMIN
     ports:
-      - "8000:8000"
+      - "4433:4433"
 
-#networks:
-#  frontend:
-#    # Use a custom driver
-#    driver: custom-driver-1
-#  backend:
-#    # Use a custom driver which takes special options
-#    driver: custom-driver-2
-#    driver_opts:
-#      foo: "1"
-#      bar: "2"
+  client:
+    build: ./client
+    container_name: client
+    volumes:
+      - /Users/yechankim/RustroverProjects/bachelor_thesis/experiments/measurements/:/app/data
+    networks:
+      - ethernet
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "3344:3344"
+
+networks:
+  ethernet:
+    driver: bridge

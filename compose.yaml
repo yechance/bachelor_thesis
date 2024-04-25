@@ -14,7 +14,7 @@ services:
     build: ./client
     container_name: client
     volumes:
-      - /Users/yechankim/RustroverProjects/bachelor_thesis/measurements/:/app/data
+      - /Users/yechankim/RustroverProjects/bachelor_thesis/experiments/measurements/:/app/data
     networks:
       - ethernet
     cap_add:

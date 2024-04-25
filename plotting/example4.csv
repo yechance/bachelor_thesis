@@ -1,2 +1,0 @@
-message_size,actual rtt,recv,sent,lost,retrans,rtt,min_rtt,rttvar,cwnd,sent_bytes,recv bytes,lost_bytes,stream_retrans_bytes,delivery_rate
-

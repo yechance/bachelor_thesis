@@ -1,13 +1,12 @@
-import pandas as pd
 import numpy as np
 from sklearn.linear_model import QuantileRegressor
-from prediction.historical_data import HistoricalData
-from prediction.lookup_table import LookupTable
+from src.prediction.historical_data import HistoricalData
+from src.prediction.lookup_table import LookupTable
 
 
 class PredictionModel:
-    def __init__(self, has_luk=True, update_period=40, num_data=400, use_mean=True):
-        self.historical_data = HistoricalData(num_data, use_mean)
+    def __init__(self, has_luk=True, update_period=40, num_data=400):
+        self.historical_data = HistoricalData(num_data)
         self.has_luk = has_luk
         self.luk = LookupTable(update_period) if has_luk else None
 
@@ -24,9 +23,9 @@ class PredictionModel:
         quantile_regressor.fit(self.historical_data.feature_vec(), self.historical_data.y_vec())
 
         if self.has_luk:
-            self.luk.set_parameters(quantile, quantile_regressor.intercept_, quantile_regressor.coef_)
+            self.luk.set_parameters(quantile, max(quantile_regressor.intercept_,0), quantile_regressor.coef_)
 
-        return quantile_regressor.predict(np.array([combination_feature]).reshape(-1, 1))
+        return max(quantile_regressor.predict(np.array([combination_feature]).reshape(-1, 1)), 0)
 
     def add_feature(self, msg_size, sending_rate=1, rtt=0):
         self.historical_data.add_features(msg_size, sending_rate, rtt)

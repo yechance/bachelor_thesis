@@ -39,6 +39,8 @@ mod prelude {
 }
 use crate::prelude::*;
 
+const K :usize = 1_000;
+const M :usize = 1_000_000;
 pub struct MessageGenerator {
     pub min_size : usize,
     pub max_size : usize,
@@ -59,9 +61,11 @@ impl MessageGenerator {
     }
     pub fn generate_random_messages(&self, messages : &mut Vec<usize>, num_msg : usize) {
         let mut rng = rand::thread_rng();
-
         for _ in 0..num_msg {
-            let random_number: usize = rng.gen_range(self.min_size..self.max_size);
+            let mut random_number: usize = self.min_size;
+            if self.min_size < self.max_size {
+                random_number = rng.gen_range(self.min_size..self.max_size);
+            }
             messages.push(random_number);
         }
     }
@@ -135,40 +139,35 @@ pub fn write_records_to_csv(filepath : &str, records : & HashMap<usize, Record>)
     }
 }
 
-pub const EXAMPLE_CSV : &str= "../plotting/example.csv";
-pub const EXAMPLE_2_CSV : &str= "../plotting/example2.csv";
-pub const EXAMPLE_3_CSV : &str= "../plotting/example3.csv";
-pub const EXAMPLE_4_CSV : &str= "../plotting/example4.csv";
-pub const ETHERNET_CSV : &str= "ethernet.csv";
-pub const WIFI_CSV : &str= "wifi.csv";
 const FIRST_STREAM_ID_UNI: u64 = 2;
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const MAX_MSG_SIZE : usize = 6_000_000;
-const K :usize = 1_000;
-const M :usize = 1_000_000;
-const NUM_MSG : usize = 5200;
+
+const NUM_MSG : usize = 2000;
 fn main() {
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let message = vec![1;MAX_MSG_SIZE];
 
     // let filepath : &str  = "/test.csv";
-    let filepath : &str  = "/app/data/ethernet_01loss.csv";
+    // let filepath : &str  = "/app/data/ethernet.csv";
+    let filepath : &str  = "/app/data/m0_BBR_1M.csv";
+    // let filepath : &str  = "/app/data/m1_3MB(3).csv";
     // let filepath : &str  = "/app/data/wlan_100mbit_5ms.csv";
 
     // generate messages
     let mut messages : Vec<usize> = Vec::new();
     let message_generator : MessageGenerator = MessageGenerator{
-        min_size : 500*K,
-        max_size : 6*M,
+        min_size : M,
+        max_size : M,
     };
     message_generator.generate_random_messages(&mut messages, NUM_MSG);
     // record
     let mut records : HashMap<usize, Record> = HashMap::new();
 
     /** socket binding */
-    // let mut url = url::Url::parse("https://server:4433/").unwrap();
-    let mut url = url::Url::parse("https://127.0.0.1:4433/").unwrap();
+    let mut url = url::Url::parse("https://server:4433/").unwrap();
+    // let mut url = url::Url::parse("https://127.0.0.1:4433/").unwrap();
 
     // Set up the event loop.
     let mut poll = mio::Poll::new().unwrap();
@@ -206,7 +205,7 @@ fn main() {
     config.set_disable_active_migration(true);
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     // config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
-
+    //
     /** Connection */
     // Generate a random source connection ID for the connection.
     let mut scid_base = [0; quiche::MAX_CONN_ID_LEN];
@@ -326,7 +325,7 @@ fn main() {
                     },
                 };
                 rest_write -= written;
-                println!("[Stream {}]\n \t Send Message idx : {}, rest bytes {}, written {}] ", stream_id, msg_idx, rest_write, written);
+                // println!("[Stream {}]\n \t Send Message idx : {}, rest bytes {}, written {}] ", stream_id, msg_idx, rest_write, written);
             }
         }
 

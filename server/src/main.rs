@@ -78,11 +78,11 @@ fn main() {
     config.set_application_protos(&[b"http/0.9", ]).unwrap();
 
     config.set_max_idle_timeout(5_000);
-    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_max_recv_udp_payload_size(MAX_MSG_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_uni(6_000_000); // 1M
-    config.set_initial_max_streams_uni(1_000);
+    config.set_initial_max_streams_uni(10_000);
     config.set_disable_active_migration(true);
     config.enable_early_data();
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
@@ -365,7 +365,7 @@ fn handle_stream(client: &mut Client, socket: &mut UdpSocket, stream_id: u64) {
     let conn = &mut client.conn;
     let mut body = stream_id.to_le_bytes();
 
-    println!("[Send ack] stream id : {} ", stream_id);
+    // println!("[Send ack] stream id : {} ", stream_id);
     loop {
         let (write, send_info) = match client.conn.send(&mut body) {
             Ok(v) => v,

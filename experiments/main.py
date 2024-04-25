@@ -1,208 +1,112 @@
 import numpy as np
 import pandas as pd
-from evaluation.experiment import Experiment
-from evaluation.visualization import *
 
-PERFORMANCE_BY_DATA_SIZE = "results/historical_data_size.csv"
-PERIOD = "results/update_period.csv"
+from src.evaluation.evaluation import calculate_mid_results, evaluate
+from src.evaluation.visualization import Visualization
+from src.experiement.experiment import Experiment, preproc
 
-QUANTILES_CSV = "results/model.csv"
-QUANTILES_NON_LUK_CSV = "results/model_without_luk.csv"
-QUANTILES_MSG_CSV = "results/model_only_msg_size.csv"
 
-BASELINE_QUANTILE_CSV = "results/quantile_baselines.csv"
-BASELINE_QUANTILE_SAMPLING_CSV = "results/quantile_baselines_sampling.csv"
+def find_optimum_h_data_period(file):
+    exp = Experiment(file, 5000, 200)
+    data_size = np.arange(50, 1000, 50)
+    period = np.concatenate([np.arange(1, 10, 1), np.arange(10, 400, 10)])
 
-HISTORICAL_DATA_SIZE_CSV = "results/historical_data_size.csv"
-HISTORICAL_DATA_SIZE_SAMPLING_CSV = "results/historical_data_size_sampling.csv"
+    # 히스토리컬 데이터 사이즈
+    exp.performance_different_data_size(data_size, 0.95, False).to_csv("./results/h_data.csv")
+    exp.performance_different_data_size(data_size, 0.95, True).to_csv("./results/h_data_sample.csv")
 
-PREDICTED_LATENCY_50 = "results/predicted_latency_50.csv"
-PREDICTED_LATENCY_95 = "results/predicted_latency_95.csv"
-PREDICTED_LATENCY_99 = "results/predicted_latency_99.csv"
-EVALUATION_99 = "results/evaluation_99.csv"
-PREDICTED_LATENCY_1M_SAMPLE = "results/predicted_latency_sample.csv"
+    # 업데이트
+    exp.period_update(period,0.95).to_csv("./results/period.csv")
 
-PREDICTED_LATENCY_99_1M = "results/predicted_latency_99_1M.csv"
-EVALUATION_99_1M = "results/evaluation_99_1M.csv"
 
-HISTORICAL_DATA_SIZE_L_CSV = "results/historical_data_size_loopback.csv"
-HISTORICAL_DATA_SIZE_SAMPLING_L_CSV = "results/historical_data_size_sampling_loopback.csv"
-PERIOD_L = "results/update_period_loopback.csv"
+def over_quantiles(file, quantiles):
+    exp = Experiment(file, 5000, 200)
+    # 분위수
+    exp.compared_baselines_quantile(quantiles, False).to_csv("./results/baseline_q_tc.csv")
+    exp.compared_baselines_quantile(quantiles, True).to_csv("./results/baseline_q_tc_sample.csv")
 
-HISTORICAL_DATA_SIZE_L_95_CSV = "results/historical_data_size_loopback_95.csv"
-HISTORICAL_DATA_SIZE_SAMPLING_L_95_CSV = "results/historical_data_size_sampling_loopback_95.csv"
-PERIOD_L_95 = "results/update_period_loopback_95.csv"
+    exp.model_by_percentile(quantiles, True, True).to_csv("./results/model_q_tc.csv")
+    exp.model_by_percentile(quantiles, True, False).to_csv("./results/model_msg_q_tc_sample.csv")
+    exp.model_by_percentile(quantiles, False, True).to_csv("./results/model_non_luk_q_non_tc.csv")
 
-QUANTILES_L_CSV = "results/model_loopback.csv"
-QUANTILES_NON_LUK_L_CSV = "results/model_without_luk_loopback.csv"
-QUANTILES_MSG_L_CSV = "results/model_only_msg_size_loopback.csv"
 
-BASELINE_QUANTILE_L_CSV = "results/quantile_baselines_loopback.csv"
-BASELINE_QUANTILE_SAMPLING_L_CSV = "results/quantile_baselines_sampling_loopback.csv"
+def get_results(file, filename, percentiles, use_sampling=False):
+    root = "./results/"
+    exp = Experiment(file)
+    results = pd.concat([exp.pred_latency(p / 100, use_sampling) for p in percentiles])
+    results.to_csv(root + filename + '.csv')
 
-PREDICTED_LATENCY_L_99 = "results/predicted_latency_99_loopback.csv"
-EVALUATION_L_99 = "results/evaluation_99_loopback.csv"
-# PREDICTED_LATENCY_1M_SAMPLE = "results/predicted_latency_sample.csv"
 
-# PREDICTED_LATENCY_99_1M = "results/predicted_latency_99_1M.csv"
-# EVALUATION_99_1M = "results/evaluation_99_1M.csv"
+def create_images_concepts(measurement_file, display_max_delay=300, display_max_rtt=50, data_step=5, id_max=1000, max_rate=125, add_delay=6):
+    save_folder = './images/concepts/'
+    data = preproc(pd.read_csv(measurement_file))
+
+    vis = Visualization()
+
+    vis.change_over_time(save_folder+'sending_rate.pdf', data, 'Sending Rate', max_rate, id_max)
+    vis.change_over_time(save_folder+'rtt.pdf', data, 'RTT', add_delay, id_max)
+
+    vis.jointplot_latency(save_folder+'message_size_latency.pdf', data, 'Message Size', 1)
+    vis.jointplot_latency(save_folder+'serialization_delay_latency.pdf', data[data['Serialization Delay'] < display_max_delay], 'Serialization Delay',data_step)
+    vis.jointplot_latency(save_folder+'combination_delay_latency.pdf', data[data['Combination Delay'] < display_max_delay], 'Combination Delay', data_step)
+    vis.jointplot_latency(save_folder+'rtt_latency.pdf', data[data['RTT'] < display_max_rtt], 'RTT', data_step)
+
+
+def create_images_performance(exp_result, exp_name='m0'):
+    save_folder = './images/evaluation/'+exp_name
+    exp_result.loc[exp_result['Method'] == 'Quantile Reg', 'Method'] = 'Model'
+    calculate_mid_results([exp_result])
+    eval_result = evaluate(exp_result)
+
+    vis = Visualization()
+    vis.barplot(save_folder+'_success_rate.pdf', eval_result, 'Success Rate')
+    vis.barplot(save_folder+'_mae.pdf', eval_result, 'MAE')
+    vis.barplot(save_folder+'_q_loss.pdf', eval_result, 'Quantile Loss')
+    vis.barplot(save_folder+'_r_overhead.pdf', eval_result, 'Relative Overhead')
+
+    return eval_result
+
+
+def create_images_distribution(exp_result, exp_name='m0', quantile=0.99, lim1=(-3000, 200), lim2=(-2000,50)):
+    save_folder = './images/evaluation/' + exp_name
+    exp_result_by_quantile = exp_result[exp_result['Quantile'] == quantile]
+
+    vis = Visualization()
+    vis.err_distibution(
+        save_folder+'_err_dist.pdf',
+        exp_result_by_quantile[exp_result_by_quantile['Method'] == 'Model'],
+        lim1
+    )
+    vis.ecdf(save_folder+'_ecdf.pdf', exp_result_by_quantile, quantile, lim2)
 
 
 if __name__ == '__main__':
-    data_size = np.arange(50, 1000, 50)
-    period = np.arange(10, 400, 10)
-    quantiles = np.round(
-        np.arange(900, 1000, 5) / 1000,
-        3
-    )
+    percentiles = np.array([90, 95, 99])
 
-    measurement_1MB_5MB = "data/measurement_1MB_5MB_random.csv"
-    measurement_1MB = "data/measurement_1MB_random.csv"
-    measurement_L = "data/500KB_6MB_5ms_1000mbit.csv"
-
-    eth_tc = "./docker_data/eth_tc_1000mbit_1ms.csv"
-    eth_non_tc = "./docker_data/eth_non_tc.csv"
-
-    exp_tc = Experiment(eth_tc, 5000, 200)
-    exp_n_tc = Experiment(eth_non_tc, 5000, 200)
-
-    # # 히스토리컬 데이터 사이즈
-    # exp_tc.performance_different_data_size(data_size, 0.95, False).to_csv("./docker_results/h_data_tc.csv")
-    exp_tc.performance_different_data_size(data_size, 0.95, True).to_csv("./docker_results/h_data_tc_sample.csv")
-    # exp_n_tc.performance_different_data_size(data_size, 0.95, False).to_csv("./docker_results/h_data_non_tc.csv")
-    # exp_n_tc.performance_different_data_size(data_size, 0.95, True).to_csv("./docker_results/h_data_non_tc_sample.csv")
-
-    # # 업데이트
-    # exp_tc.period_update(period,0.95).to_csv("./docker_results/period_tc.csv")
-    # exp_n_tc.period_update(period, 0.95).to_csv("./docker_results/period_non_tc.csv")
-
-    # 분위수
-    # exp_tc.compared_baselines_quantile(quantiles, False).to_csv("./docker_results/baseline_q_tc.csv")
-    # exp_tc.compared_baselines_quantile(quantiles, True).to_csv("./docker_results/baseline_q_tc_sample.csv")
+    # (1) Measurements => Experiment Results
+    get_results('./measurements/m0_500KB_3MB1.csv', 'm0_1', percentiles)
+    get_results('./measurements/m0_500KB_3MB2.csv', 'm0_2', percentiles)
+    get_results('./measurements/m0_500KB_3MB3.csv', 'm0_3', percentiles)
+    get_results('./measurements/m0_500KB_3MB4.csv', 'm0_4', percentiles)
     #
-    # exp_n_tc.compared_baselines_quantile(quantiles, False).to_csv("./docker_results/baseline_q_non_tc.csv")
-    # exp_n_tc.compared_baselines_quantile(quantiles, True).to_csv("./docker_results/baseline_q_non_tc_sample.csv")
-    #
-    # exp_tc.model_by_percentile(quantiles, True, True).to_csv("./docker_results/model_q_tc.csv")
-    # exp_tc.model_by_percentile(quantiles, True, False).to_csv("./docker_results/model_msg_q_tc_sample.csv")
-    # exp_tc.model_by_percentile(quantiles, False, True).to_csv("./docker_results/model_non_luk_q_non_tc.csv")
-    #
-    # exp_n_tc.model_by_percentile(quantiles, True, True).to_csv("./docker_results/model_q_tc.csv")
-    # exp_n_tc.model_by_percentile(quantiles, True, False).to_csv("./docker_results/model_msg_q_tc_sample.csv")
-    # exp_n_tc.model_by_percentile(quantiles, False, True).to_csv("./docker_results/model_non_luk_q_non_tc.csv")
+    # get_results('./measurements/m1_3MB1.csv', 'm1_1', percentiles)
+    # get_results('./measurements/m1_3MB2.csv', 'm1_2', percentiles)
+    # get_results('./measurements/m1_3MB3.csv', 'm1_3', percentiles)
+    # get_results('./measurements/m1_3MB4.csv', 'm1_4', percentiles)
 
-    # 예측 레이턴시
-    # 분위수 50, 95, 99
-    # exp_tc.pred_latency(0.95, False).to_csv("./docker_results/q_95_tc.csv")
-    # exp_n_tc.pred_latency(0.95, False).to_csv("./docker_results/q_95_non_tc.csv")
-
-    # exp_tc.pred_latency(0.99, False).to_csv("./docker_results/q_99_tc.csv")
-    # exp_n_tc.pred_latency(0.99, False).to_csv("./docker_results/q_99_non_tc.csv")
-    #
-    # exp_tc.pred_latency(0.5, False).to_csv("./docker_results/q_50_tc.csv")
-    # exp_n_tc.pred_latency(0.5, False).to_csv("./docker_results/q_50_non_tc.csv")
-    #
-    # exp_tc.pred_latency(0.95, True).to_csv("./docker_results/q_95_tc_sample.csv")
-    # exp_n_tc.pred_latency(0.95, True).to_csv("./docker_results/q_95_non_tc_sample.csv")
-    #
-    # exp_tc.pred_latency(0.99, True).to_csv("./docker_results/q_99_tc.csv")
-    # exp_n_tc.pred_latency(0.99, True).to_csv("./docker_results/q_99_non_tc_sample.csv")
-    #
-    # exp_tc.pred_latency(0.5, True).to_csv("./docker_results/q_50_tc_sample.csv")
-    # exp_n_tc.pred_latency(0.5, True).to_csv("./docker_results/q_50_non_tc_sample.csv")
-    # df.to_csv(PREDICTED_LATENCY_99_1M)
-    #
-    # df = experiment_baseline.pred_latency()
-    # df.to_csv(PREDICTED_LATENCY_95)
-    #
-    # df = experiment_baseline.pred_latency()
-    # df.to_csv(PREDICTED_LATENCY_50)
-
-
-
-
-# import asyncio
-# import os
-# import docker
-#
-# # Traffic Control
-# # 1. Network Delay : tc qdisc add dev eth0 root netem delay ()
-# # 2. Packet Loss : tc qdisc add dev eth0 root netem loss 10%
-# # 3. Packet Corruption : tc qdisc change dev eth0 root netem corrupt 5%
-# # 4. Bandwidth limit : tc qdisc add dev eth0 root rate (1mbit) burst (32kbit) latency
-#
-# # async def reset_inter_server_interface(container_name:str):
-# #     p = await asyncio.create_subprocess_exec("docker","exec", container_name,
-# #                                              "tc", "qdisc", "del", "dev", "eth0", "root")
-# #                                              # cwd=os.getcwd() + "/docker/hrmes-dqlite")
-# #     await p.wait()
-# #
-# # async def set_outbound_server_latency_and_bandwidth(container_name:str, milliseconds:int, mbits:int):
-# #     p = await asyncio.create_subprocess_exec("docker", "exec", container_name,
-# #                                              "tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay",
-# #                                              str(int(milliseconds))+"ms", "rate", str(mbits)+"mbits",
-# #                                              # cwd=os.getcwd() + "/docker/hrmes-dqlite"
-# #                                              )
-# #
-# # async def set_inter_server_latency_and_bandwidth(container_names:list[str], milliseconds:int, mbits:int):
-# #     for cn in container_names:
-# #         await reset_inter_server_interface(cn)
-# #         await set_outbound_server_latency_and_bandwidth(cn, milliseconds * 0.5, mbits)
-#
-# if __name__ == '__main__':
-#     latency=0
-#     bandwidth=0
-#
-#     traffic_control_cmd_eth0 = [
-#         "tc qdisc del dev eth0 root",
-#         "tc qdisc add dev eth0 root netem delay {latency}ms rate {bandwidth}mbits".format(latency=latency, bandwidth=bandwidth)
-#     ]
-#
-#     my_docker = docker.from_env()
-#
-#     # docker network
-#     quiche_network = my_docker.networks.create(
-#         name="quiche_bbr",
-#         driver="bridge"
-#     )
-#     client_image = ""
-#     server_image = ""
-#     # Run Server Container
-#     my_docker.containers.run(
-#         image=server_image,
-#         command=traffic_control_cmd_eth0,  # Configure the traffic control in the server container
-#         auto_remove=True,
-#         detach=False,
-#         name="quic_server",
-#         network=quiche_network,
-#         ports={'4433/udp': '4433'},
-#         stdout=True,
-#         stderr=True,
-#     )
-#     # Run Client Container
-#     my_docker.containers.run(
-#         image=client_image,
-#         command=traffic_control_cmd_eth0,  # Configure the traffic control in the server container
-#         auto_remove=True,
-#         detach=False,
-#         # environment
-#         name="quic_client",
-#         network=quiche_network,
-#         ports={'3344/udp': '3344'},
-#         # volume=
-#         stdout=True,
-#         stderr=True,
-#     )
-#     # Training : Measurement
-#     # Historical data :
-#
-#     # Create Prediction Model
-#
-#     # Testing :
-#     # KL-Divergence
-#
-#     # Evaluation :
-#
-#     # Remove docker settings
-#     quiche_network.remove()
-#     None
+    # (2) Experiment Results => Evaluation & Image Creation using create images
+    scenario1 = pd.concat([
+            pd.read_csv('./results/m0_1.csv'),
+            pd.read_csv('./results/m0_2.csv'),
+            pd.read_csv('./results/m0_3.csv'),
+            pd.read_csv('./results/m0_4.csv'),
+        ])
+    scenario2 = pd.concat([
+            pd.read_csv('./results/m1_1.csv'),
+            pd.read_csv('./results/m1_2.csv'),
+            pd.read_csv('./results/m1_3.csv'),
+            pd.read_csv('./results/m1_4.csv'),
+        ])
+    create_images_performance(scenario1, 'm0')
+    create_images_performance(scenario2, 'm1')
+    create_images_distribution(scenario1, 'm0')

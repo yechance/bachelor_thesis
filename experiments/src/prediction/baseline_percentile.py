@@ -1,17 +1,15 @@
 import numpy as np
 
-from prediction.historical_data import HistoricalData
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import KBinsDiscretizer
+from src.prediction.historical_data_msg import HistoricalDataNaive
 from sklearn.mixture import GaussianMixture
 
 import scipy.stats as stats
 
 
 class QuantileBaseline:
-    # features : msg_size, sending_rate, rtt
-    def __init__(self, num_data=500):
-        self.historical_data = HistoricalData(num_data)
+    # features : msg_size
+    def __init__(self, num_data=400):
+        self.historical_data = HistoricalDataNaive(num_data)
 
     def gaussian(self, quantile, feature, use_sampling=False):
         try:
@@ -35,6 +33,7 @@ class QuantileBaseline:
             return stats.lognorm.ppf(quantile, s=shape, loc=loc, scale=scale)
         except:
             return -1
+
     def gmm(self, quantile, feature, use_sampling=False):
         try:
             # sample
@@ -54,34 +53,4 @@ class QuantileBaseline:
 
     def add_actual_latency(self, latency):
         self.historical_data.add_label(latency)
-
-    # def histogram(self, quantile, feature, num_bins):
-    #     X = np.stack([
-    #             self.historical_data.message_size,
-    #             self.historical_data.ma_sending_rate,
-    #             self.historical_data.ma_rtt
-    #         ], axis=1)
-    #     y = self.historical_data.y_vec()
-    #
-    #     # Discretize the dependent variable space for the histogram estimator
-    #     discretizer = KBinsDiscretizer(n_bins=num_bins, encode='ordinal', strategy='uniform')
-    #     y_binned = discretizer.fit_transform(y.reshape(-1, 1)).flatten()
-    #
-    #     # Train a Random Forest classifier to predict the probability of each bin
-    #     classifier = RandomForestClassifier(n_estimators=100, random_state=42)
-    #     classifier.fit(X, y_binned)
-    #
-    #     # class probabilities
-    #     probabilities = classifier.predict_proba(X)
-    #
-    #     # Calculate conditional density from class probabilities
-    #     bin_edges = discretizer.bin_edges_[0]
-    #     bin_widths = np.diff(bin_edges)
-    #     conditional_density = probabilities / bin_widths
-    #
-    #     # Calculate the CDF from the conditional density
-    #     cdf = np.cumsum(conditional_density, axis=1)
-    #
-    #     index = np.argmax(cdf >= quantile, axis=1)
-    #     return bin_edges[index]
 
